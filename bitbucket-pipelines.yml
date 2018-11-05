@@ -1,0 +1,9 @@
+# Check our guides at https://confluence.atlassian.com/x/5Q4SMw for more examples.
+image: rust:1.27
+
+pipelines:
+  default:
+    - step:
+        script: # Modify the commands below to build your repository.
+          - cargo build -v
+          - cargo test -v
