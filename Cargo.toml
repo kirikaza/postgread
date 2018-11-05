@@ -4,4 +4,8 @@ version = "0.1.0"
 authors = ["Kirill Kazakov <k@kirikaza.ru>"]
 
 [dependencies]
+bytes = "0.4"
+futures = "0.1"
 structopt = { version = "0.2", default-features = false }
+tokio = "0.1"
+tokio-io = "0.1"
