@@ -1,11 +1,12 @@
 use util;
 
+use futures::{Future};
+use futures::future::{Either::*, Loop::*, err, loop_fn, ok};
 use std::fmt::{self, Debug, Formatter};
-use std::mem::size_of_val;
-use std::io::{self, BufRead, Read};
-use std::io::ErrorKind::UnexpectedEof;
+use std::mem::{size_of_val};
+use std::io::{BufRead, ErrorKind::UnexpectedEof};
 
-type IO<T> = io::Result<T>;
+use tokio::io::{self, AsyncRead};
 
 #[derive(Debug, PartialEq)]
 pub enum Message {
@@ -18,40 +19,63 @@ pub enum Message {
         body_len: u32,
     },
 }
+
 impl Message {
-    pub fn read<S: BufRead>
-        (stream: &mut S, startup: bool) -> IO<Option<Self>>
+    pub fn read<R>(stream: R, first: bool) -> impl Future<Item=Option<(R, Self)>, Error=io::Error>
+    where R : AsyncRead + BufRead
     {
-        let type_byte: Option<u8>;
-        let full_len: u32;
-        if startup {
-            type_byte = None;
-            match read_u32(stream) {
-                Ok(o) => full_len = o,
-                Err(ref e) if e.kind() == UnexpectedEof => return Ok(None),
-                Err(e) => return Err(e),
-            }
+        if first {
+            //  Err(ref e) if e.kind() == UnexpectedEof => return Ok(None)
+            A(read_u32(stream).then(|res| match res {
+                Ok(k) => Ok(Some(k)),
+                Err(ref e) if e.kind() == UnexpectedEof => Ok(None),
+                Err(e) => Err(e),
+            }).and_then(|o| o.map(|(stream, full_len)| {
+                Self::read_body(stream, None, full_len)
+            })))
         } else {
-            match read_u8(stream) {
-                Ok(o) => type_byte = Some(o),
-                Err(ref e) if e.kind() == UnexpectedEof => return Ok(None),
-                Err(e) => return Err(e),
-            }
-            full_len = read_u32(stream)?;
-        };
-        let body_len = full_len - size_of_val(&full_len) as u32;
-        // protect from reading extra bytes:
-        let mut stream = stream.take(body_len as u64);
-        match type_byte {
-            None => Ok(Some(Message::Startup {
-                version: Version::read(&mut stream)?,
-                params: StartupParam::read_many(&mut stream)?,
-            })),
-            Some(type_byte) => {
-                read_and_drop(&mut stream, body_len)?;
-                Ok(Some(Message::Unknown { type_sym: Some(type_byte as char), body_len }))
-            }
+            B(read_u8(stream).then(|res| match res {
+                Ok(k) => Ok(Some(k)),
+                Err(ref e) if e.kind() == UnexpectedEof => Ok(None),
+                Err(e) => Err(e),
+            }).and_then(|o| o.map(|(stream, type_byte)| {
+                read_u32(stream).and_then(move |(stream, full_len)| {
+                    Self::read_body(stream, Some(type_byte), full_len)
+                })
+            })))
         }
+    }
+
+    fn read_body<R>(stream: R, type_byte: Option<u8>, full_len: u32) -> impl Future<Item=(R, Self), Error=io::Error>
+    where R : AsyncRead + BufRead
+    {
+        let body_len = full_len - size_of_val(&full_len) as u32;
+        // protect from reading extra bytes like `take()`
+        let stream = stream.take(body_len as u64);
+        match type_byte {
+            None => A(Self::read_startup(stream)),
+            Some(type_byte) => B(Self::read_unknown(stream, type_byte, body_len)),
+        }.map(|(stream, msg)| {
+            (stream.into_inner(), msg)
+        })
+    }
+
+    fn read_startup<R>(stream: R) -> impl Future<Item=(R, Self), Error=io::Error>
+    where R : AsyncRead + BufRead
+    {
+        Version::read(stream).and_then(|(stream, version)| {
+            StartupParam::read_many(stream).map(move |(stream, params)| {
+                (stream, Message::Startup { version, params })
+            })
+        })
+    }
+
+    fn read_unknown<R>(stream: R, type_byte: u8, body_len: u32) -> impl Future<Item=(R, Self), Error=io::Error>
+    where R : AsyncRead + BufRead
+    {
+        read_and_drop(stream, body_len).map(move |stream| {
+            (stream, Message::Unknown { type_sym: Some(type_byte as char), body_len })
+        })
     }
 }
 
@@ -61,10 +85,13 @@ pub struct Version {
     minor: u16,
 }
 impl Version {
-    fn read(stream: &mut Read) -> IO<Self> {
-        Ok(Version {
-            major: read_u16(stream)?,
-            minor: read_u16(stream)?,
+    fn read<R>(stream: R) -> impl Future<Item=(R, Self), Error=io::Error>
+    where R : AsyncRead
+    {
+        read_u16(stream).and_then(|(stream, major)| {
+            read_u16(stream).map(move |(stream, minor)| {
+                (stream, Version { major, minor })
+            })
         })
     }
 }
@@ -75,23 +102,27 @@ pub struct StartupParam {
     value: Vec<u8>,
 }
 impl StartupParam {
-    fn read_many(stream: &mut BufRead) -> IO<Vec<Self>> {
-        let mut params = vec![];
-        loop {
-            let mut name = read_null_terminated(stream)?;
-            if name.pop() != Some(0) {
-                return Err(io::Error::new(io::ErrorKind::Other, "can't read startup param name"));
-            }
-            if name.is_empty() {
-                break;
-            }
-            let mut value = read_null_terminated(stream)?;
-            if value.pop() != Some(0) {
-                return Err(io::Error::new(io::ErrorKind::Other, "cant' read startup param value"));
-            }
-            params.push(StartupParam { name, value });
-        }
-        Ok(params)
+    fn read_many<R>(stream: R) -> impl Future<Item=(R, Vec<Self>), Error=io::Error>
+    where R : AsyncRead + BufRead
+    {
+        loop_fn((stream, vec![]), |(stream, mut params)| {
+            read_null_terminated(stream).and_then(move |(stream, mut name)| {
+                if name.pop() != Some(0) {
+                    A(err(error_other("can't read startup param name")))
+                } else if name.is_empty() {
+                    A(ok(Break((stream, params))))
+                } else {
+                    B(read_null_terminated(stream).and_then(|(stream, mut value)| {
+                        if value.pop() != Some(0) {
+                            Err(error_other("cant' read startup param value"))
+                        } else {
+                            params.push(StartupParam { name, value });
+                            Ok(Continue((stream, params)))
+                        }
+                    }))
+                }
+            })
+        })
     }
 }
 impl Debug for StartupParam {
@@ -102,45 +133,56 @@ impl Debug for StartupParam {
     }
 }
 
-fn read_u8(stream: &mut Read) -> IO<u8> {
-    let mut buf = [0u8; 1];
-    stream.read_exact(&mut buf)?;
-    Ok(buf[0])
+fn read_u8<R>(stream: R) -> impl Future<Item=(R, u8), Error=io::Error>
+where R : AsyncRead
+{
+    io::read_exact(stream, [0u8; 1])
+        .map(|(stream, buf)| (stream, buf[0]))
 }
 
-fn read_u16(stream: &mut Read) -> IO<u16> {
-    let mut buf = [0u8; 2];
-    stream.read_exact(&mut buf)?;
-    Ok(util::u16_from_big_endian(&buf))
+fn read_u16<R>(stream: R) -> impl Future<Item=(R, u16), Error=io::Error>
+where R : AsyncRead
+{
+    io::read_exact(stream, [0u8; 2])
+        .map(|(stream, buf)| (stream, util::u16_from_big_endian(&buf)))
 }
 
-fn read_u32(stream: &mut Read) -> IO<u32> {
-    let mut buf = [0u8; 4];
-    stream.read_exact(&mut buf)?;
-    Ok(util::u32_from_big_endian(&buf))
+fn read_u32<R>(stream: R) -> impl Future<Item=(R, u32), Error=io::Error>
+where R : AsyncRead
+{
+    io::read_exact(stream, [0u8; 4])
+        .map(|(stream, buf)| (stream, util::u32_from_big_endian(&buf)))
 }
 
-fn read_null_terminated(stream: &mut BufRead) -> IO<Vec<u8>> {
-    let mut buf = vec![];
-    stream.read_until(0, &mut buf)?;
-    Ok(buf)
+fn read_null_terminated<R>(stream: R) -> impl Future<Item=(R, Vec<u8>), Error=io::Error>
+where R: AsyncRead + BufRead
+{
+    io::read_until(stream, 0, vec![])
 }
 
-fn read_and_drop(stream: &mut Read, num: u32) -> IO<()> {
+fn read_and_drop<R>(stream: R, num: u32) -> impl Future<Item=R, Error=io::Error>
+where R: AsyncRead
+{
     const BATCH: usize = 64*1024;
-    let mut buf = [0u8; BATCH];
-    let mut left = num as usize;
-    while left >= BATCH {
-        stream.read_exact(&mut buf)?;
-        left -= BATCH;
-    }
-    let mut buf = &mut vec![0; left][..];
-    stream.read_exact(&mut buf)
+    loop_fn((stream, num as usize), |(stream, left)| {
+        if left < BATCH {
+            A(io::read_exact(stream, vec![0u8; left])
+                .map(|(stream, _)| Break(stream)))
+        } else {
+            B(io::read_exact(stream, vec![0u8; BATCH])
+                .map(move |(stream, _)| Continue((stream, left - BATCH))))
+        }
+    })
+}
+
+fn error_other(msg: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, msg)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use futures::{Async::*, Poll};
 
     #[test]
     fn startup_without_params() {
@@ -150,11 +192,11 @@ mod test {
             0, // params
         ];
         assert_eq!(
-            Message::Startup {
+            Ok(Ready(Some(Message::Startup {
                 version: Version { major: 3, minor: 1 },
                 params: vec![],
-            },
-            Message::read(&mut bytes, true).unwrap().unwrap(),
+            }))),
+            simplify(&mut Message::read(&mut bytes, true)),
         );
     }
 
@@ -165,9 +207,9 @@ mod test {
             0,3,1,0, // version
         ];
         bytes.extend_from_slice(b"user\0root\0database\0postgres\0\0");
-        println!("{:?}", bytes);
+        let mut bytes = &bytes[..];
         assert_eq!(
-            Message::Startup {
+            Ok(Ready(Some(Message::Startup {
                 version: Version { major: 3, minor: 0x100 },
                 params: vec![
                     StartupParam {
@@ -179,8 +221,18 @@ mod test {
                         value: Vec::from(&b"postgres"[..]),
                     },
                 ],
-            },
-            Message::read(&mut &bytes[..], true).unwrap().unwrap(),
+            }))),
+           simplify(&mut Message::read(&mut bytes, true)),
         );        
+    }
+
+    fn simplify<R>(future: &mut Future<Item=Option<(R, Message)>, Error=io::Error>) -> Poll<Option<Message>, String>
+    where R : AsyncRead + Debug
+    {
+        match future.poll() {
+            Ok(Ready(ready)) => Ok(Ready(ready.map(|(_stream, msg)| msg))),
+            Ok(NotReady) => Ok(NotReady),
+            Err(e) => Err(e.to_string()),
+        }
     }
 }
