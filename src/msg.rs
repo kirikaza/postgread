@@ -21,28 +21,31 @@ pub enum Message {
 }
 
 impl Message {
-    pub fn read<R>(stream: R, first: bool) -> impl Future<Item=Option<(R, Self)>, Error=io::Error>
+    pub fn read<R>(stream: R, is_first_msg: bool) -> impl Future<Item=Option<(R, Self)>, Error=io::Error>
     where R : AsyncRead + BufRead
     {
-        if first {
-            //  Err(ref e) if e.kind() == UnexpectedEof => return Ok(None)
-            A(read_u32(stream).then(|res| match res {
-                Ok(k) => Ok(Some(k)),
-                Err(ref e) if e.kind() == UnexpectedEof => Ok(None),
-                Err(e) => Err(e),
-            }).and_then(|o| o.map(|(stream, full_len)| {
+        read_u8(stream).then(move |res| match res {
+            Ok((stream, first_byte)) => A(Self::read_ahead(first_byte, stream, is_first_msg).map(|stream_and_msg| {
+                Some(stream_and_msg)
+            })),
+            Err(e) => match e.kind() {
+                UnexpectedEof => B(ok(None)),
+                _ => B(err(e)),
+            },
+        })
+    }
+
+    fn read_ahead<R>(first_byte: u8, stream: R, is_first_msg: bool) -> impl Future<Item=(R, Self), Error=io::Error>
+    where R : AsyncRead + BufRead
+    {
+        if is_first_msg {
+            A(read_u32_tail(first_byte, stream).and_then(|(stream, full_len)| {
                 Self::read_body(stream, None, full_len)
-            })))
+            }))
         } else {
-            B(read_u8(stream).then(|res| match res {
-                Ok(k) => Ok(Some(k)),
-                Err(ref e) if e.kind() == UnexpectedEof => Ok(None),
-                Err(e) => Err(e),
-            }).and_then(|o| o.map(|(stream, type_byte)| {
-                read_u32(stream).and_then(move |(stream, full_len)| {
-                    Self::read_body(stream, Some(type_byte), full_len)
-                })
-            })))
+            B(read_u32(stream).and_then(move |(stream, full_len)| {
+                Self::read_body(stream, Some(first_byte), full_len)
+            }))
         }
     }
 
@@ -152,6 +155,16 @@ where R : AsyncRead
 {
     io::read_exact(stream, [0u8; 4])
         .map(|(stream, buf)| (stream, util::u32_from_big_endian(&buf)))
+}
+
+fn read_u32_tail<R>(head: u8, stream: R) -> impl Future<Item=(R, u32), Error=io::Error>
+where R : AsyncRead
+{
+    io::read_exact(stream, [0u8; 3])
+        .map(move |(stream, tail)| {
+            let buf = [head, tail[0], tail[1], tail[2]];
+            (stream, util::u32_from_big_endian(&buf))
+        })
 }
 
 fn read_null_terminated<R>(stream: R) -> impl Future<Item=(R, Vec<u8>), Error=io::Error>
