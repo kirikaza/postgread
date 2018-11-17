@@ -21,8 +21,8 @@ pub enum Message {
 }
 
 impl Message {
-    pub fn read<R>(stream: R, is_first_msg: bool) -> impl Future<Item=Option<(R, Self)>, Error=io::Error>
-    where R : AsyncRead + BufRead
+    pub fn read<'a, R>(stream: R, is_first_msg: bool) -> impl Future<Item=Option<(R, Self)>, Error=io::Error> + 'a + Send
+    where R : 'a + AsyncRead + BufRead + Send
     {
         read_u8(stream).then(move |res| match res {
             Ok((stream, first_byte)) => A(Self::read_ahead(first_byte, stream, is_first_msg).map(|stream_and_msg| {
@@ -35,8 +35,8 @@ impl Message {
         })
     }
 
-    fn read_ahead<R>(first_byte: u8, stream: R, is_first_msg: bool) -> impl Future<Item=(R, Self), Error=io::Error>
-    where R : AsyncRead + BufRead
+    fn read_ahead<'a, R>(first_byte: u8, stream: R, is_first_msg: bool) -> impl Future<Item=(R, Self), Error=io::Error> + 'a + Send
+    where R : 'a + AsyncRead + BufRead + Send
     {
         if is_first_msg {
             A(read_u32_tail(first_byte, stream).and_then(|(stream, full_len)| {
@@ -49,36 +49,36 @@ impl Message {
         }
     }
 
-    fn read_body<R>(stream: R, type_byte: Option<u8>, full_len: u32) -> impl Future<Item=(R, Self), Error=io::Error>
-    where R : AsyncRead + BufRead
+    fn read_body<'a, R>(stream: R, type_byte: Option<u8>, full_len: u32) -> impl Future<Item=(R, Self), Error=io::Error> + 'a + Send
+    where R : 'a + AsyncRead + BufRead + Send
     {
         let body_len = full_len - size_of_val(&full_len) as u32;
         // protect from reading extra bytes like `take()`
         let stream = stream.take(body_len as u64);
         match type_byte {
-            None => A(Self::read_startup(stream)),
-            Some(type_byte) => B(Self::read_unknown(stream, type_byte, body_len)),
+            None => Self::read_startup(stream),
+            Some(type_byte) => Self::read_unknown(stream, type_byte, body_len),
         }.map(|(stream, msg)| {
             (stream.into_inner(), msg)
         })
     }
 
-    fn read_startup<R>(stream: R) -> impl Future<Item=(R, Self), Error=io::Error>
-    where R : AsyncRead + BufRead
+    fn read_startup<'a, R>(stream: R) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
+    where R : 'a + AsyncRead + BufRead + Send
     {
-        Version::read(stream).and_then(|(stream, version)| {
+        Box::new(Version::read(stream).and_then(|(stream, version)| {
             StartupParam::read_many(stream).map(move |(stream, params)| {
                 (stream, Message::Startup { version, params })
             })
-        })
+        }))
     }
 
-    fn read_unknown<R>(stream: R, type_byte: u8, body_len: u32) -> impl Future<Item=(R, Self), Error=io::Error>
-    where R : AsyncRead + BufRead
+    fn read_unknown<'a, R>(stream: R, type_byte: u8, body_len: u32) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
+    where R : 'a + AsyncRead + BufRead + Send
     {
-        read_and_drop(stream, body_len).map(move |stream| {
+        Box::new(read_and_drop(stream, body_len).map(move |stream| {
             (stream, Message::Unknown { type_sym: Some(type_byte as char), body_len })
-        })
+        }))
     }
 }
 
@@ -88,8 +88,8 @@ pub struct Version {
     minor: u16,
 }
 impl Version {
-    fn read<R>(stream: R) -> impl Future<Item=(R, Self), Error=io::Error>
-    where R : AsyncRead
+    fn read<R>(stream: R) -> impl Future<Item=(R, Self), Error=io::Error> + Send
+    where R : AsyncRead + Send
     {
         read_u16(stream).and_then(|(stream, major)| {
             read_u16(stream).map(move |(stream, minor)| {
@@ -105,8 +105,8 @@ pub struct StartupParam {
     value: Vec<u8>,
 }
 impl StartupParam {
-    fn read_many<R>(stream: R) -> impl Future<Item=(R, Vec<Self>), Error=io::Error>
-    where R : AsyncRead + BufRead
+    fn read_many<R>(stream: R) -> impl Future<Item=(R, Vec<Self>), Error=io::Error> + Send
+    where R : AsyncRead + BufRead + Send
     {
         loop_fn((stream, vec![]), |(stream, mut params)| {
             read_null_terminated(stream).and_then(move |(stream, mut name)| {
@@ -136,29 +136,29 @@ impl Debug for StartupParam {
     }
 }
 
-fn read_u8<R>(stream: R) -> impl Future<Item=(R, u8), Error=io::Error>
-where R : AsyncRead
+fn read_u8<R>(stream: R) -> impl Future<Item=(R, u8), Error=io::Error> + Send
+where R : AsyncRead + Send
 {
     io::read_exact(stream, [0u8; 1])
         .map(|(stream, buf)| (stream, buf[0]))
 }
 
-fn read_u16<R>(stream: R) -> impl Future<Item=(R, u16), Error=io::Error>
-where R : AsyncRead
+fn read_u16<R>(stream: R) -> impl Future<Item=(R, u16), Error=io::Error> + Send
+where R : AsyncRead + Send
 {
     io::read_exact(stream, [0u8; 2])
         .map(|(stream, buf)| (stream, util::u16_from_big_endian(&buf)))
 }
 
-fn read_u32<R>(stream: R) -> impl Future<Item=(R, u32), Error=io::Error>
-where R : AsyncRead
+fn read_u32<R>(stream: R) -> impl Future<Item=(R, u32), Error=io::Error> + Send
+where R : AsyncRead + Send
 {
     io::read_exact(stream, [0u8; 4])
         .map(|(stream, buf)| (stream, util::u32_from_big_endian(&buf)))
 }
 
-fn read_u32_tail<R>(head: u8, stream: R) -> impl Future<Item=(R, u32), Error=io::Error>
-where R : AsyncRead
+fn read_u32_tail<R>(head: u8, stream: R) -> impl Future<Item=(R, u32), Error=io::Error> + Send
+where R : AsyncRead + Send
 {
     io::read_exact(stream, [0u8; 3])
         .map(move |(stream, tail)| {
@@ -167,14 +167,14 @@ where R : AsyncRead
         })
 }
 
-fn read_null_terminated<R>(stream: R) -> impl Future<Item=(R, Vec<u8>), Error=io::Error>
-where R: AsyncRead + BufRead
+fn read_null_terminated<R>(stream: R) -> impl Future<Item=(R, Vec<u8>), Error=io::Error> + Send
+where R: AsyncRead + BufRead + Send
 {
     io::read_until(stream, 0, vec![])
 }
 
-fn read_and_drop<R>(stream: R, num: u32) -> impl Future<Item=R, Error=io::Error>
-where R: AsyncRead
+fn read_and_drop<R>(stream: R, num: u32) -> impl Future<Item=R, Error=io::Error> + Send
+where R: AsyncRead + Send
 {
     const BATCH: usize = 64*1024;
     loop_fn((stream, num as usize), |(stream, left)| {
