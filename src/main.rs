@@ -58,7 +58,7 @@ fn handle_client(config: &Config, client: TcpStream) -> io::Result<()> {
         match (client.split(), server.split()) {
             ((from_client, to_client), (from_server, to_server)) => {
                 convey_messages(from_client, to_server, true, "client")?;
-                convey_messages(from_server, to_client, true, "server")?;
+                convey_messages(from_server, to_client, false, "server")?;
                 Ok(())
             }
         }

@@ -10,6 +10,8 @@ use tokio::io::{self, AsyncRead};
 
 #[derive(Debug, PartialEq)]
 pub enum Message {
+    AuthenticationOk,
+    AuthenticationUnknown,
     Startup {
         version: Version,
         params: Vec<StartupParam>,
@@ -57,6 +59,7 @@ impl Message {
         let stream = stream.take(body_len as u64);
         match type_byte {
             None => Self::read_startup(stream),
+            Some(b'R') => Self::read_auth(stream),
             Some(type_byte) => Self::read_unknown(stream, type_byte, body_len),
         }.map(|(stream, msg)| {
             (stream.into_inner(), msg)
@@ -73,6 +76,15 @@ impl Message {
         }))
     }
 
+    fn read_auth<'a, R>(stream: R) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
+    where R : 'a + AsyncRead + BufRead + Send
+    {
+        Box::new(read_u32(stream).map(|(stream, result)| match result {
+            0 => (stream, Message::AuthenticationOk),
+            _ => (stream, Message::AuthenticationUnknown),
+        }))
+    }
+    
     fn read_unknown<'a, R>(stream: R, type_byte: u8, body_len: u32) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
     where R : 'a + AsyncRead + BufRead + Send
     {
