@@ -11,15 +11,18 @@ use tokio::io::{self, AsyncRead};
 #[derive(Debug, PartialEq)]
 pub enum Message {
     AuthenticationOk,
-    AuthenticationUnknown,
+    AuthenticationKerberosV5,
+    AuthenticationCleartextPassword,
+    AuthenticationMD5Password { salt: u32 },
+    AuthenticationSCMCredential,
+    AuthenticationGSS,
+    AuthenticationSSPI,
+    AuthenticationGSSContinue { auth_data: Vec<u8> },
     Startup {
         version: Version,
         params: Vec<StartupParam>,
     },
-    Unknown {
-        type_sym: Option<char>,
-        body_len: u32,
-    },
+    Unknown { note: String },
 }
 
 impl Message {
@@ -59,8 +62,8 @@ impl Message {
         let stream = stream.take(body_len as u64);
         match type_byte {
             None => Self::read_startup(stream),
-            Some(b'R') => Self::read_auth(stream),
-            Some(type_byte) => Self::read_unknown(stream, type_byte, body_len),
+            Some(b'R') => Self::read_auth(stream, body_len),
+            Some(type_byte) => Self::read_unknown(stream, body_len, format!("unknown message type {}", type_byte as char)),
         }.map(|(stream, msg)| {
             (stream.into_inner(), msg)
         })
@@ -76,20 +79,46 @@ impl Message {
         }))
     }
 
-    fn read_auth<'a, R>(stream: R) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
+    fn read_auth<'a, R>(stream: R, body_len: u32) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
     where R : 'a + AsyncRead + BufRead + Send
     {
-        Box::new(read_u32(stream).map(|(stream, result)| match result {
-            0 => (stream, Message::AuthenticationOk),
-            _ => (stream, Message::AuthenticationUnknown),
+        Box::new(read_u32(stream).and_then(move |(stream, auth_type)| {
+            let left_len = body_len - size_of_val(&auth_type) as u32;
+            match auth_type {
+                0 => Box::new(ok((stream, Message::AuthenticationOk))),
+                2 => Box::new(ok((stream, Message::AuthenticationKerberosV5))),
+                3 => Box::new(ok((stream, Message::AuthenticationCleartextPassword))),
+                5 => Self::read_auth_cleartext_password(stream),
+                6 => Box::new(ok((stream, Message::AuthenticationSCMCredential))),
+                7 => Box::new(ok((stream, Message::AuthenticationGSS))),
+                8 => Self::read_auth_gss_continue(stream, left_len),
+                9 => Box::new(ok((stream, Message::AuthenticationSSPI))),
+                _ => Self::read_unknown(stream, left_len, format!("unknown authentication sub-type {}", auth_type)),
+            }
         }))
     }
-    
-    fn read_unknown<'a, R>(stream: R, type_byte: u8, body_len: u32) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
+
+    fn read_auth_cleartext_password<'a, R>(stream: R) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
     where R : 'a + AsyncRead + BufRead + Send
     {
-        Box::new(read_and_drop(stream, body_len).map(move |stream| {
-            (stream, Message::Unknown { type_sym: Some(type_byte as char), body_len })
+        Box::new(read_u32(stream).map(|(stream, salt)| {
+            (stream, Message::AuthenticationMD5Password { salt })
+        }))
+    }
+
+    fn read_auth_gss_continue<'a, R>(stream: R, left_len: u32) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
+    where R : 'a + AsyncRead + BufRead + Send
+    {
+        Box::new(io::read_to_end(stream, Vec::with_capacity(left_len as usize)).map(|(stream, auth_data)| {
+            (stream, Message::AuthenticationGSSContinue { auth_data })
+        }))
+    }
+
+    fn read_unknown<'a, R>(stream: R, left_len: u32, note: String) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
+    where R : 'a + AsyncRead + BufRead + Send
+    {
+        Box::new(read_and_drop(stream, left_len).map(move |stream| {
+            (stream, Message::Unknown { note })
         }))
     }
 }
