@@ -12,4 +12,4 @@ pipelines:
 
 definitions:
   caches:
-    cargo: ~/.cargo
+    cargo: /usr/local/cargo
