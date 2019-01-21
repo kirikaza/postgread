@@ -4,6 +4,12 @@ image: rust:1.27
 pipelines:
   default:
     - step:
+        caches:
+          - cargo
         script: # Modify the commands below to build your repository.
           - cargo build -v
           - cargo test -v
+
+definitions:
+  caches:
+    cargo: ~/.cargo
