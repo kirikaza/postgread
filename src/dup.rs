@@ -68,10 +68,10 @@ impl Error for DupErr {
             &DupErr::Mismatch {..} => "read/written mismatch",
         }
     }
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            &DupErr::Read(ref e) => e.cause(),
-            &DupErr::Write(ref e) => e.cause(),
+            &DupErr::Read(ref e) => e.source(),
+            &DupErr::Write(ref e) => e.source(),
             &DupErr::Mismatch {..} => None,
         }
     }
