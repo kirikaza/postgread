@@ -1,5 +1,3 @@
-use util;
-
 use futures::{Future};
 use futures::future::{Either::*, Loop::*, err, loop_fn, ok};
 use std::fmt::{self, Debug, Formatter};
@@ -188,14 +186,14 @@ fn read_u16<R>(stream: R) -> impl Future<Item=(R, u16), Error=io::Error> + Send
 where R : AsyncRead + Send
 {
     io::read_exact(stream, [0u8; 2])
-        .map(|(stream, buf)| (stream, util::u16_from_big_endian(&buf)))
+        .map(|(stream, buf)| (stream, u16::from_be_bytes(buf)))
 }
 
 fn read_u32<R>(stream: R) -> impl Future<Item=(R, u32), Error=io::Error> + Send
 where R : AsyncRead + Send
 {
     io::read_exact(stream, [0u8; 4])
-        .map(|(stream, buf)| (stream, util::u32_from_big_endian(&buf)))
+        .map(|(stream, buf)| (stream, u32::from_be_bytes(buf)))
 }
 
 fn read_u32_tail<R>(head: u8, stream: R) -> impl Future<Item=(R, u32), Error=io::Error> + Send
@@ -204,7 +202,7 @@ where R : AsyncRead + Send
     io::read_exact(stream, [0u8; 3])
         .map(move |(stream, tail)| {
             let buf = [head, tail[0], tail[1], tail[2]];
-            (stream, util::u32_from_big_endian(&buf))
+            (stream, u32::from_be_bytes(buf))
         })
 }
 
