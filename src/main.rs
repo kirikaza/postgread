@@ -8,7 +8,7 @@ use futures::{Future, Stream};
 use futures::future::{Loop::*, loop_fn};
 use postgread::dup::DupReader;
 use postgread::msg::Message;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::io::BufReader;
 use structopt::StructOpt;
 use tokio::io;
@@ -18,6 +18,12 @@ use tokio::net::{TcpListener, TcpStream};
 #[derive(StructOpt)]
 #[structopt(name="postgread")]
 struct Config {
+    #[structopt(long = "listen-addr", default_value = "127.0.0.1")]
+    listen_addr: IpAddr,
+
+    #[structopt(long = "listen-port", default_value = "5432")]
+    listen_port: u16,
+
     #[structopt(long = "target-host")]
     target_host: String,
 
@@ -72,8 +78,8 @@ fn handle_client(config: &Config, client: TcpStream) -> io::Result<()> {
 
 fn main() {
     let config = Config::from_args();
-    let listen_addr = "127.0.0.1:15432".parse().unwrap();
-    let listener = TcpListener::bind(&listen_addr).unwrap();
+    let listen = SocketAddr::new(config.listen_addr, config.listen_port);
+    let listener = TcpListener::bind(&listen).unwrap();
     let server = listener.incoming().for_each(move |stream| {
         handle_client(&config, stream)
     }).map_err(|err| {
