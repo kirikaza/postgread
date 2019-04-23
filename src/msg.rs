@@ -57,7 +57,7 @@ impl Message {
     {
         let body_len = full_len - size_of_val(&full_len) as u32;
         // protect from reading extra bytes like `take()`
-        let stream = stream.take(body_len as u64);
+        let stream = stream.take(u64::from(body_len));
         match type_byte {
             None => Self::read_startup(stream),
             Some(b'R') => Self::read_auth(stream, body_len),

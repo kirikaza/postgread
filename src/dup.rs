@@ -25,7 +25,7 @@ impl<R: AsyncRead, W: AsyncWrite> Read for DupReader<R, W> {
         } else {
             Err(io::Error::new(
                 io::ErrorKind::Other,
-                DupErr::Mismatch { read: read, written: written },
+                DupErr::Mismatch { read, written },
             ))
         }
     }
@@ -40,7 +40,7 @@ impl<R: AsyncRead, W: AsyncWrite> AsyncRead for DupReader<R, W> {
         } else {
             Err(io::Error::new(
                 io::ErrorKind::Other,
-                DupErr::Mismatch { read: read, written: written },
+                DupErr::Mismatch { read, written },
             ))
         }
     }
@@ -62,26 +62,26 @@ pub enum DupErr {
 }
 impl Error for DupErr {
     fn description(&self) -> &str {
-        match self {
-            &DupErr::Read(ref e) => e.description(),
-            &DupErr::Write(ref e) => e.description(),
-            &DupErr::Mismatch {..} => "read/written mismatch",
+        match *self {
+            DupErr::Read(ref e) => e.description(),
+            DupErr::Write(ref e) => e.description(),
+            DupErr::Mismatch {..} => "read/written mismatch",
         }
     }
     fn cause(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            &DupErr::Read(ref e) => e.source(),
-            &DupErr::Write(ref e) => e.source(),
-            &DupErr::Mismatch {..} => None,
+        match *self {
+            DupErr::Read(ref e) => e.source(),
+            DupErr::Write(ref e) => e.source(),
+            DupErr::Mismatch {..} => None,
         }
     }
 }
 impl Display for DupErr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            &DupErr::Read(ref e) => write!(f, "read error: {}", e),
-            &DupErr::Write(ref e) => write!(f, "write error: {}", e),
-            &DupErr::Mismatch { read, written } => write!(f, "read {}, written {}", read, written)
+        match *self {
+            DupErr::Read(ref e) => write!(f, "read error: {}", e),
+            DupErr::Write(ref e) => write!(f, "write error: {}", e),
+            DupErr::Mismatch { read, written } => write!(f, "read {}, written {}", read, written)
         }
     }
 }
