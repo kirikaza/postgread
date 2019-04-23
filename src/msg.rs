@@ -11,7 +11,7 @@ pub enum Message {
     AuthenticationOk,
     AuthenticationKerberosV5,
     AuthenticationCleartextPassword,
-    AuthenticationMD5Password { salt: u32 },
+    AuthenticationMD5Password { salt: [u8; 4] },
     AuthenticationSCMCredential,
     AuthenticationGSS,
     AuthenticationSSPI,
@@ -86,7 +86,7 @@ impl Message {
                 0 => Box::new(ok((stream, Message::AuthenticationOk))),
                 2 => Box::new(ok((stream, Message::AuthenticationKerberosV5))),
                 3 => Box::new(ok((stream, Message::AuthenticationCleartextPassword))),
-                5 => Self::read_auth_cleartext_password(stream),
+                5 => Self::read_auth_md5_password(stream),
                 6 => Box::new(ok((stream, Message::AuthenticationSCMCredential))),
                 7 => Box::new(ok((stream, Message::AuthenticationGSS))),
                 8 => Self::read_auth_gss_continue(stream, left_len),
@@ -96,10 +96,10 @@ impl Message {
         }))
     }
 
-    fn read_auth_cleartext_password<'a, R>(stream: R) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
+    fn read_auth_md5_password<'a, R>(stream: R) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
     where R : 'a + AsyncRead + BufRead + Send
     {
-        Box::new(read_u32(stream).map(|(stream, salt)| {
+        Box::new(io::read_exact(stream, [0u8; 4]).map(|(stream, salt)| {
             (stream, Message::AuthenticationMD5Password { salt })
         }))
     }
@@ -236,6 +236,112 @@ mod test {
     use super::*;
     use futures::{Async::*, Poll};
 
+    #[test]
+    fn authentication_ok() {
+        let mut bytes: &[u8] = &[
+            b'R',
+            0,0,0,8, // len
+            0,0,0,0, // ok
+        ];
+        assert_eq!(
+            Ok(Ready(Some(Message::AuthenticationOk))),
+            simplify(&mut Message::read(&mut bytes, false)),
+        );
+    }
+    
+    #[test]
+    fn authentication_kerberos_v5() {
+        let mut bytes: &[u8] = &[
+            b'R',
+            0,0,0,8, // len
+            0,0,0,2, // Kerberos V5 is required
+        ];
+        assert_eq!(
+            Ok(Ready(Some(Message::AuthenticationKerberosV5))),
+            simplify(&mut Message::read(&mut bytes, false)),
+        );
+    }
+    
+    #[test]
+    fn authentication_cleartext_password() {
+        let mut bytes: &[u8] = &[
+            b'R',
+            0,0,0,8, // len
+            0,0,0,3, // cleartext password is required
+        ];
+        assert_eq!(
+            Ok(Ready(Some(Message::AuthenticationCleartextPassword))),
+            simplify(&mut Message::read(&mut bytes, false)),
+        );
+    }
+    
+    #[test]
+    fn authentication_md5_password() {
+        let mut bytes: &[u8] = &[
+            b'R',
+            0,0,0,12, // len
+            0,0,0,5, // MD5 password is required
+            1,2,3,4, // salt
+        ];
+        assert_eq!(
+            Ok(Ready(Some(Message::AuthenticationMD5Password { salt: [1,2,3,4] }))),
+            simplify(&mut Message::read(&mut bytes, false)),
+        );
+    }
+    
+    #[test]
+    fn authentication_scm_credential() {
+        let mut bytes: &[u8] = &[
+            b'R',
+            0,0,0,8, // len
+            0,0,0,6, // SCM credentials message is required
+        ];
+        assert_eq!(
+            Ok(Ready(Some(Message::AuthenticationSCMCredential))),
+            simplify(&mut Message::read(&mut bytes, false)),
+        );
+    }
+    
+    #[test]
+    fn authentication_gss() {
+        let mut bytes: &[u8] = &[
+            b'R',
+            0,0,0,8, // len
+            0,0,0,7, // GSSAPI authentication is required
+        ];
+        assert_eq!(
+            Ok(Ready(Some(Message::AuthenticationGSS))),
+            simplify(&mut Message::read(&mut bytes, false)),
+        );
+    }
+    
+    #[test]
+    fn authentication_sspi() {
+        let mut bytes: &[u8] = &[
+            b'R',
+            0,0,0,8, // len
+            0,0,0,9, // SSPI authentication is required
+        ];
+        assert_eq!(
+            Ok(Ready(Some(Message::AuthenticationSSPI))),
+            simplify(&mut Message::read(&mut bytes, false)),
+        );
+    }
+    
+    #[test]
+    fn authentication_gss_continue() {
+        let mut bytes: &[u8] = &[
+            b'R',
+            0,0,0,11, // len
+            0,0,0,8, // contains GSS or SSPI data
+            b'G', b'S', b'S', // data
+        ];
+        assert_eq!(
+            Ok(Ready(Some(Message::AuthenticationGSSContinue { auth_data: "GSS".as_bytes().to_vec() }))),
+            simplify(&mut Message::read(&mut bytes, false)),
+        );
+    }
+    
     #[test]
     fn startup_without_params() {
         let mut bytes: &[u8] = &[
