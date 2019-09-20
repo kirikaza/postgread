@@ -1,21 +1,21 @@
+#![feature(async_await)]
+#![feature(async_closure)]
+
 extern crate futures;
 extern crate postgread;
-#[macro_use]
 extern crate structopt;
 extern crate tokio;
 
-use futures::{Future, Stream};
-use futures::future::{Loop::*, loop_fn};
+use futures::io::{AsyncRead, AsyncWrite, BufReader};
 use postgread::dup::DupReader;
 use postgread::msg::Message;
+use postgread::tokio_compat::compat;
 use std::net::{IpAddr, SocketAddr};
-use std::io::BufReader;
+use std::io;
 use structopt::StructOpt;
-use tokio::io;
-use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 
-#[derive(StructOpt)]
+#[derive(Clone, StructOpt)]
 #[structopt(name="postgread")]
 struct Config {
     #[structopt(long = "listen-addr", default_value = "127.0.0.1")]
@@ -31,59 +31,69 @@ struct Config {
     target_port: u16,
 }
 
-fn convey_messages<R, W>(from: R, to: W, first: bool, name: &'static str) -> io::Result<()>
+fn convey_messages<R, W>(from: R, to: W, mut first: bool, name: &'static str) -> io::Result<()>
 where
-    R: 'static + AsyncRead + Send,
-    W: 'static + AsyncWrite + Send,
+    R: 'static + AsyncRead + Send + Unpin,
+    W: 'static + AsyncWrite + Send + Unpin,
 {
-    let dup = BufReader::new(DupReader::new(from, to));
-    tokio::spawn(loop_fn((dup, first), move |(stream, first)| {
-        Message::read(stream, first).map(move |x| match x {
-            None => {
-                println!("{} finished", name);
-                Break(())
-            },
-            Some((stream, msg)) => {
-                println!("{} sent {:?}", name, msg);
-                Continue((stream, false))
-            },
-        })
-    }).map_err(move |err| {
-        println!("{} behaved unexpectedly: {:?}", name, err)
-    }));
+    tokio::spawn(async move {
+        let mut dup = BufReader::new(DupReader::new(from, to));
+        loop {
+            match Message::read(&mut dup, first).await {
+                Ok(None) => {
+                    println!("{} finished", name);
+                    break;
+                },
+                Ok(Some(msg)) => {
+                    println!("{} sent {:?}", name, msg);
+                    first = false;
+                },
+                Err(err) => {
+                    println!("{} behaved unexpectedly: {:?}", name, err);
+                    break;
+                },
+            }
+        }
+    });
     Ok(())
 }
 
-fn handle_client(config: &Config, client: TcpStream) -> io::Result<()> {
+async fn handle_client(config: Config, client: TcpStream) -> io::Result<()> {
     println!("accepted client {:?}", client.peer_addr().unwrap());
     let target_ip = config.target_host.parse()
         .map_err(|err| io::Error::new(io::ErrorKind::NotConnected, err))?;
     let server_endpoint = SocketAddr::new(target_ip, config.target_port);
-    let task = TcpStream::connect(&server_endpoint).and_then(move |server| {
-        println!("connected to target server {}", server.local_addr().unwrap());
-        match (client.split(), server.split()) {
-            ((from_client, to_client), (from_server, to_server)) => {
-                convey_messages(from_client, to_server, true, "client")?;
-                convey_messages(from_server, to_client, false, "server")?;
-                Ok(())
-            }
+    tokio::spawn(async move {
+        match TcpStream::connect(&server_endpoint).await {
+            Ok(server) => {
+                println!("connected to target server {}", server.local_addr().unwrap());
+                match (client.split(), server.split()) {
+                    ((from_client, to_client), (from_server, to_server)) => {
+                        convey_messages(compat(from_client), compat(to_server), true, "client").unwrap();
+                        convey_messages(compat(from_server), compat(to_client), false, "server").unwrap();
+                    }
+                }
+            },
+            Err(err) => {
+                println!("could not connect to target host: {:?}", err);
+            },
         }
-    }).map_err(|err| {
-        println!("could not connect to target host: {:?}", err);
     });
-    tokio::spawn(task);
     Ok(())
 }
 
-
-fn main() {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     let config = Config::from_args();
     let listen = SocketAddr::new(config.listen_addr, config.listen_port);
-    let listener = TcpListener::bind(&listen).unwrap();
-    let server = listener.incoming().for_each(move |stream| {
-        handle_client(&config, stream)
-    }).map_err(|err| {
-        println!("cannot accept connection: {:?}", err);
-    });
-    tokio::run(server);
+    let mut listener = TcpListener::bind(&listen).unwrap();
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let config = config.clone();
+        tokio::spawn(async move {
+            handle_client(config, stream).await.unwrap_or_else(|err| {
+                println!("could not handle client: {:?}", err)
+            });
+        });
+    }
 }
