@@ -1,10 +1,7 @@
-use futures::{Future};
-use futures::future::{Either::*, Loop::*, err, loop_fn, ok};
+use futures::io::{AsyncBufReadExt, AsyncReadExt};
 use std::fmt::{self, Debug, Formatter};
 use std::mem::{size_of_val};
-use std::io::{BufRead, ErrorKind::UnexpectedEof};
-
-use tokio::io::{self, AsyncRead};
+use std::io::{self, ErrorKind::UnexpectedEof};
 
 #[derive(Debug, PartialEq)]
 pub enum Message {
@@ -24,100 +21,90 @@ pub enum Message {
 }
 
 impl Message {
-    pub fn read<'a, R>(stream: R, is_first_msg: bool) -> impl Future<Item=Option<(R, Self)>, Error=io::Error> + 'a + Send
-    where R : 'a + AsyncRead + BufRead + Send
+    pub async fn read<R>(stream: &mut R, is_first_msg: bool) -> io::Result<Option<Self>>
+    where R: AsyncBufReadExt + Unpin      
     {
-        read_u8(stream).then(move |res| match res {
-            Ok((stream, first_byte)) => A(Self::read_ahead(first_byte, stream, is_first_msg).map(|stream_and_msg| {
-                Some(stream_and_msg)
-            })),
+        match read_u8(stream).await {
+            Ok(first_byte) =>
+                Ok(Some(Self::read_ahead(first_byte, stream, is_first_msg).await?)),
             Err(e) => match e.kind() {
-                UnexpectedEof => B(ok(None)),
-                _ => B(err(e)),
+                UnexpectedEof => Ok(None),
+                _ => Err(e),
             },
-        })
-    }
-
-    fn read_ahead<'a, R>(first_byte: u8, stream: R, is_first_msg: bool) -> impl Future<Item=(R, Self), Error=io::Error> + 'a + Send
-    where R : 'a + AsyncRead + BufRead + Send
-    {
-        if is_first_msg {
-            A(read_u32_tail(first_byte, stream).and_then(|(stream, full_len)| {
-                Self::read_body(stream, None, full_len)
-            }))
-        } else {
-            B(read_u32(stream).and_then(move |(stream, full_len)| {
-                Self::read_body(stream, Some(first_byte), full_len)
-            }))
         }
     }
 
-    fn read_body<'a, R>(stream: R, type_byte: Option<u8>, full_len: u32) -> impl Future<Item=(R, Self), Error=io::Error> + 'a + Send
-    where R : 'a + AsyncRead + BufRead + Send
+    async fn read_ahead<R>(first_byte: u8, stream: &mut R, is_first_msg: bool) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin      
+    {
+        if is_first_msg {
+            let full_len = read_u32_tail(first_byte, stream).await?;
+            Self::read_body(stream, None, full_len).await
+        } else {
+            let full_len = read_u32(stream).await?;
+            Self::read_body(stream, Some(first_byte), full_len).await
+        }
+    }
+
+    async fn read_body<R>(stream: &mut R, type_byte: Option<u8>, full_len: u32) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin      
     {
         let body_len = full_len - size_of_val(&full_len) as u32;
-        // protect from reading extra bytes like `take()`
-        let stream = stream.take(u64::from(body_len));
+        // TODO: protect from reading extra bytes like `stream.take(u64::from(body_len))`
         match type_byte {
-            None => Self::read_startup(stream),
-            Some(b'R') => Self::read_auth(stream, body_len),
-            Some(type_byte) => Self::read_unknown(stream, body_len, format!("unknown message type {}", type_byte as char)),
-        }.map(|(stream, msg)| {
-            (stream.into_inner(), msg)
-        })
+            None => Self::read_startup(stream).await,
+            Some(b'R') => Self::read_auth(stream, body_len).await,
+            Some(type_byte) => Self::read_unknown(stream, body_len, format!("unknown message type {}", type_byte as char)).await,
+        }
     }
 
-    fn read_startup<'a, R>(stream: R) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
-    where R : 'a + AsyncRead + BufRead + Send
+    async fn read_startup<R>(stream: &mut R) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin      
     {
-        Box::new(Version::read(stream).and_then(|(stream, version)| {
-            StartupParam::read_many(stream).map(move |(stream, params)| {
-                (stream, Message::Startup { version, params })
-            })
-        }))
+        let version = Version::read(stream).await?;
+        let params = StartupParam::read_many(stream).await?;
+        Ok(Message::Startup { version, params })
     }
 
-    fn read_auth<'a, R>(stream: R, body_len: u32) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
-    where R : 'a + AsyncRead + BufRead + Send
+    async fn read_auth<R>(stream: &mut R, body_len: u32) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin      
     {
-        Box::new(read_u32(stream).and_then(move |(stream, auth_type)| {
-            let left_len = body_len - size_of_val(&auth_type) as u32;
-            match auth_type {
-                0 => Box::new(ok((stream, Message::AuthenticationOk))),
-                2 => Box::new(ok((stream, Message::AuthenticationKerberosV5))),
-                3 => Box::new(ok((stream, Message::AuthenticationCleartextPassword))),
-                5 => Self::read_auth_md5_password(stream),
-                6 => Box::new(ok((stream, Message::AuthenticationSCMCredential))),
-                7 => Box::new(ok((stream, Message::AuthenticationGSS))),
-                8 => Self::read_auth_gss_continue(stream, left_len),
-                9 => Box::new(ok((stream, Message::AuthenticationSSPI))),
-                _ => Self::read_unknown(stream, left_len, format!("unknown authentication sub-type {}", auth_type)),
-            }
-        }))
+        let auth_type = read_u32(stream).await?;
+        let left_len = body_len - size_of_val(&auth_type) as u32;
+        match auth_type {
+            0 => Ok(Message::AuthenticationOk),
+            2 => Ok(Message::AuthenticationKerberosV5),
+            3 => Ok(Message::AuthenticationCleartextPassword),
+            5 => Self::read_auth_md5_password(stream).await,
+            6 => Ok(Message::AuthenticationSCMCredential),
+            7 => Ok(Message::AuthenticationGSS),
+            8 => Self::read_auth_gss_continue(stream, left_len).await,
+            9 => Ok(Message::AuthenticationSSPI),
+            _ => Self::read_unknown(stream, left_len, format!("unknown authentication sub-type {}", auth_type)).await,
+        }
     }
 
-    fn read_auth_md5_password<'a, R>(stream: R) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
-    where R : 'a + AsyncRead + BufRead + Send
+    async fn read_auth_md5_password<R>(stream: &mut R) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin      
     {
-        Box::new(io::read_exact(stream, [0u8; 4]).map(|(stream, salt)| {
-            (stream, Message::AuthenticationMD5Password { salt })
-        }))
+        let mut salt = [0u8; 4];
+        stream.read_exact(&mut salt).await?;
+        Ok(Message::AuthenticationMD5Password { salt })
     }
 
-    fn read_auth_gss_continue<'a, R>(stream: R, left_len: u32) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
-    where R : 'a + AsyncRead + BufRead + Send
+    async fn read_auth_gss_continue<R>(stream: &mut R, left_len: u32) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin      
     {
-        Box::new(io::read_to_end(stream, Vec::with_capacity(left_len as usize)).map(|(stream, auth_data)| {
-            (stream, Message::AuthenticationGSSContinue { auth_data })
-        }))
+        let mut auth_data = Vec::with_capacity(left_len as usize);
+        stream.read_to_end(&mut auth_data).await?;
+        Ok(Message::AuthenticationGSSContinue { auth_data })
     }
 
-    fn read_unknown<'a, R>(stream: R, left_len: u32, note: String) -> Box<'a + Future<Item=(R, Self), Error=io::Error> + Send>
-    where R : 'a + AsyncRead + BufRead + Send
+    async fn read_unknown<R>(stream: &mut R, left_len: u32, note: String) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin      
     {
-        Box::new(read_and_drop(stream, left_len).map(move |stream| {
-            (stream, Message::Unknown { note })
-        }))
+        read_and_drop(stream, left_len).await?;
+        Ok(Message::Unknown { note })
     }
 }
 
@@ -127,14 +114,12 @@ pub struct Version {
     minor: u16,
 }
 impl Version {
-    fn read<R>(stream: R) -> impl Future<Item=(R, Self), Error=io::Error> + Send
-    where R : AsyncRead + Send
+    async fn read<R>(stream: &mut R) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin
     {
-        read_u16(stream).and_then(|(stream, major)| {
-            read_u16(stream).map(move |(stream, minor)| {
-                (stream, Version { major, minor })
-            })
-        })
+        let major = read_u16(stream).await?;
+        let minor = read_u16(stream).await?;
+        Ok(Version { major, minor })
     }
 }
 
@@ -144,27 +129,25 @@ pub struct StartupParam {
     value: Vec<u8>,
 }
 impl StartupParam {
-    fn read_many<R>(stream: R) -> impl Future<Item=(R, Vec<Self>), Error=io::Error> + Send
-    where R : AsyncRead + BufRead + Send
+    async fn read_many<R>(stream: &mut R) -> io::Result<Vec<Self>>
+    where R: AsyncBufReadExt + Unpin
     {
-        loop_fn((stream, vec![]), |(stream, mut params)| {
-            read_null_terminated(stream).and_then(move |(stream, mut name)| {
-                if name.pop() != Some(0) {
-                    A(err(error_other("can't read startup param name")))
-                } else if name.is_empty() {
-                    A(ok(Break((stream, params))))
-                } else {
-                    B(read_null_terminated(stream).and_then(|(stream, mut value)| {
-                        if value.pop() != Some(0) {
-                            Err(error_other("cant' read startup param value"))
-                        } else {
-                            params.push(StartupParam { name, value });
-                            Ok(Continue((stream, params)))
-                        }
-                    }))
-                }
-            })
-        })
+        let mut params = vec![];
+        loop {
+            let mut name = read_null_terminated(stream).await?;
+            if name.pop() != Some(0) {
+                return Err(error_other("can't read startup param name"));
+            }
+            if name.is_empty() {
+                break;
+            }
+            let mut value = read_null_terminated(stream).await?;
+            if value.pop() != Some(0) {
+                return Err(error_other("can't read startup param value"));
+            }
+            params.push(StartupParam { name, value });
+        }
+        Ok(params)
     }
 }
 impl Debug for StartupParam {
@@ -175,56 +158,61 @@ impl Debug for StartupParam {
     }
 }
 
-fn read_u8<R>(stream: R) -> impl Future<Item=(R, u8), Error=io::Error> + Send
-where R : AsyncRead + Send
+async fn read_u8<R>(stream: &mut R) -> io::Result<u8>
+where R: AsyncReadExt + Unpin
 {
-    io::read_exact(stream, [0u8; 1])
-        .map(|(stream, buf)| (stream, buf[0]))
+    let mut buf = [0u8; 1];
+    stream.read_exact(&mut buf).await?;
+    Ok(buf[0])
 }
 
-fn read_u16<R>(stream: R) -> impl Future<Item=(R, u16), Error=io::Error> + Send
-where R : AsyncRead + Send
+async fn read_u16<R>(stream: &mut R) -> io::Result<u16>
+where R: AsyncReadExt + Unpin
 {
-    io::read_exact(stream, [0u8; 2])
-        .map(|(stream, buf)| (stream, u16::from_be_bytes(buf)))
+    let mut buf = [0u8; 2];
+    stream.read_exact(&mut buf).await?;
+    Ok(u16::from_be_bytes(buf))
 }
 
-fn read_u32<R>(stream: R) -> impl Future<Item=(R, u32), Error=io::Error> + Send
-where R : AsyncRead + Send
+async fn read_u32<R>(stream: &mut R) -> io::Result<u32>
+where R: AsyncReadExt + Unpin
 {
-    io::read_exact(stream, [0u8; 4])
-        .map(|(stream, buf)| (stream, u32::from_be_bytes(buf)))
+    let mut buf = [0u8; 4];
+    stream.read_exact(&mut buf).await?;
+    Ok(u32::from_be_bytes(buf))
 }
 
-fn read_u32_tail<R>(head: u8, stream: R) -> impl Future<Item=(R, u32), Error=io::Error> + Send
-where R : AsyncRead + Send
+async fn read_u32_tail<R>(head: u8, stream: &mut R) -> io::Result<u32>
+where R: AsyncReadExt + Unpin
 {
-    io::read_exact(stream, [0u8; 3])
-        .map(move |(stream, tail)| {
-            let buf = [head, tail[0], tail[1], tail[2]];
-            (stream, u32::from_be_bytes(buf))
-        })
+    let mut tail = [0u8; 3];
+    stream.read_exact(&mut tail).await?;
+    let bytes = [head, tail[0], tail[1], tail[2]];
+    Ok(u32::from_be_bytes(bytes))
 }
 
-fn read_null_terminated<R>(stream: R) -> impl Future<Item=(R, Vec<u8>), Error=io::Error> + Send
-where R: AsyncRead + BufRead + Send
+async fn read_null_terminated<R>(stream: &mut R) -> io::Result<Vec<u8>>
+where R: AsyncBufReadExt + Unpin
 {
-    io::read_until(stream, 0, vec![])
+    let mut buf = vec![];
+    stream.read_until(0, &mut buf).await?;
+    Ok(buf)
 }
 
-fn read_and_drop<R>(stream: R, num: u32) -> impl Future<Item=R, Error=io::Error> + Send
-where R: AsyncRead + Send
+async fn read_and_drop<R>(stream: R, num: u32) -> io::Result<()>
+where R: AsyncBufReadExt + Unpin
 {
     const BATCH: usize = 64*1024;
-    loop_fn((stream, num as usize), |(stream, left)| {
-        if left < BATCH {
-            A(io::read_exact(stream, vec![0u8; left])
-                .map(|(stream, _)| Break(stream)))
-        } else {
-            B(io::read_exact(stream, vec![0u8; BATCH])
-                .map(move |(stream, _)| Continue((stream, left - BATCH))))
-        }
-    })
+    let mut stream = stream;
+    let mut left = num as usize;
+    let mut buf = [0u8; BATCH];
+    while left >= BATCH {
+        stream.read_exact(&mut buf).await?;
+        left -= BATCH;
+    }
+    let mut buf = &mut vec![0; left][..];
+    stream.read_exact(&mut buf).await?;
+    Ok(())
 }
 
 fn error_other(msg: &str) -> io::Error {
@@ -234,7 +222,9 @@ fn error_other(msg: &str) -> io::Error {
 #[cfg(test)]
 mod test {
     use super::*;
-    use futures::{Async::*, Poll};
+    use futures::task::Poll::*;
+    use futures_test::task::noop_context;
+    use std::pin::Pin;
 
     #[test]
     fn authentication_ok() {
@@ -244,7 +234,7 @@ mod test {
             0,0,0,0, // ok
         ];
         assert_eq!(
-            Ok(Ready(Some(Message::AuthenticationOk))),
+            Ok(Some(Message::AuthenticationOk)),
             simplify(&mut Message::read(&mut bytes, false)),
         );
     }
@@ -257,7 +247,7 @@ mod test {
             0,0,0,2, // Kerberos V5 is required
         ];
         assert_eq!(
-            Ok(Ready(Some(Message::AuthenticationKerberosV5))),
+            Ok(Some(Message::AuthenticationKerberosV5)),
             simplify(&mut Message::read(&mut bytes, false)),
         );
     }
@@ -270,7 +260,7 @@ mod test {
             0,0,0,3, // cleartext password is required
         ];
         assert_eq!(
-            Ok(Ready(Some(Message::AuthenticationCleartextPassword))),
+            Ok(Some(Message::AuthenticationCleartextPassword)),
             simplify(&mut Message::read(&mut bytes, false)),
         );
     }
@@ -284,7 +274,7 @@ mod test {
             1,2,3,4, // salt
         ];
         assert_eq!(
-            Ok(Ready(Some(Message::AuthenticationMD5Password { salt: [1,2,3,4] }))),
+            Ok(Some(Message::AuthenticationMD5Password { salt: [1,2,3,4] })),
             simplify(&mut Message::read(&mut bytes, false)),
         );
     }
@@ -297,7 +287,7 @@ mod test {
             0,0,0,6, // SCM credentials message is required
         ];
         assert_eq!(
-            Ok(Ready(Some(Message::AuthenticationSCMCredential))),
+            Ok(Some(Message::AuthenticationSCMCredential)),
             simplify(&mut Message::read(&mut bytes, false)),
         );
     }
@@ -310,7 +300,7 @@ mod test {
             0,0,0,7, // GSSAPI authentication is required
         ];
         assert_eq!(
-            Ok(Ready(Some(Message::AuthenticationGSS))),
+            Ok(Some(Message::AuthenticationGSS)),
             simplify(&mut Message::read(&mut bytes, false)),
         );
     }
@@ -323,7 +313,7 @@ mod test {
             0,0,0,9, // SSPI authentication is required
         ];
         assert_eq!(
-            Ok(Ready(Some(Message::AuthenticationSSPI))),
+            Ok(Some(Message::AuthenticationSSPI)),
             simplify(&mut Message::read(&mut bytes, false)),
         );
     }
@@ -337,7 +327,7 @@ mod test {
             b'G', b'S', b'S', // data
         ];
         assert_eq!(
-            Ok(Ready(Some(Message::AuthenticationGSSContinue { auth_data: "GSS".as_bytes().to_vec() }))),
+            Ok(Some(Message::AuthenticationGSSContinue { auth_data: "GSS".as_bytes().to_vec() })),
             simplify(&mut Message::read(&mut bytes, false)),
         );
     }
@@ -350,10 +340,10 @@ mod test {
             0, // params
         ];
         assert_eq!(
-            Ok(Ready(Some(Message::Startup {
+            Ok(Some(Message::Startup {
                 version: Version { major: 3, minor: 1 },
                 params: vec![],
-            }))),
+            })),
             simplify(&mut Message::read(&mut bytes, true)),
         );
     }
@@ -367,7 +357,7 @@ mod test {
         bytes.extend_from_slice(b"user\0root\0database\0postgres\0\0");
         let mut bytes = &bytes[..];
         assert_eq!(
-            Ok(Ready(Some(Message::Startup {
+            Ok(Some(Message::Startup {
                 version: Version { major: 3, minor: 0x100 },
                 params: vec![
                     StartupParam {
@@ -379,18 +369,18 @@ mod test {
                         value: Vec::from(&b"postgres"[..]),
                     },
                 ],
-            }))),
+            })),
            simplify(&mut Message::read(&mut bytes, true)),
         );        
     }
 
-    fn simplify<R>(future: &mut Future<Item=Option<(R, Message)>, Error=io::Error>) -> Poll<Option<Message>, String>
-    where R : AsyncRead + Debug
-    {
-        match future.poll() {
-            Ok(Ready(ready)) => Ok(Ready(ready.map(|(_stream, msg)| msg))),
-            Ok(NotReady) => Ok(NotReady),
-            Err(e) => Err(e.to_string()),
+    fn simplify(
+        future: &mut futures::Future<Output = io::Result<Option<Message>>>
+    ) -> Result<Option<Message>, String> {
+        let pinned = unsafe { Pin::new_unchecked(future) };
+        match pinned.poll(&mut noop_context()) {
+            Ready(ready) => ready.map_err(|e| e.to_string()),
+            Pending => panic!("unexpected Pending in synchronous tests"),
         }
     }
 }
