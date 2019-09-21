@@ -138,11 +138,11 @@ mod test {
     use futures::task::{Context, Poll, Poll::*};
     use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite};
     use futures_test::task::noop_context;
-    use std::fmt::{self, Debug, Formatter};
-    use std::io::{self, Cursor, ErrorKind, Read, Write};
+    use std::fmt::Debug;
+    use std::io::{self, Cursor, ErrorKind, Read};
     use std::pin::Pin;
 
-    fn poll_ok<T>(fut: &mut Future<Output=io::Result<T>>) -> T {
+    fn poll_ok<T>(fut: &mut dyn Future<Output=io::Result<T>>) -> T {
         let pinned = unsafe { Pin::new_unchecked(fut) };
         match pinned.poll(&mut noop_context()) {
             Ready(ready) => ready.unwrap(),
@@ -150,7 +150,7 @@ mod test {
         }
     }
     
-    fn poll_err<T: Debug>(fut: &mut Future<Output=io::Result<T>>, expected_err: &str) -> io::Error {
+    fn poll_err<T: Debug>(fut: &mut dyn Future<Output=io::Result<T>>, expected_err: &str) -> io::Error {
         let pinned = unsafe { Pin::new_unchecked(fut) };
         match pinned.poll(&mut noop_context()) {
             Ready(ready) => ready.expect_err(expected_err),
@@ -218,19 +218,19 @@ mod test {
         }
     }
     impl AsyncRead for Mock {
-        fn poll_read(self: Pin<&mut Self>, cx: &mut Context, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        fn poll_read(self: Pin<&mut Self>, _: &mut Context, _: &mut [u8]) -> Poll<io::Result<usize>> {
             self.poll_mock(|count| count, "mock read failure")
         }
     }
     impl AsyncWrite for Mock {
-        fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
+        fn poll_write(self: Pin<&mut Self>, _: &mut Context, _: &[u8]) -> Poll<io::Result<usize>> {
             self.poll_mock(|count| count, "mock write failure")
         }
-        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-            self.poll_mock(|count| (), "mock flush failure")
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<io::Result<()>> {
+            self.poll_mock(|_| (), "mock flush failure")
         }
-        fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-            self.poll_mock(|count| (), "mock close failure")
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<io::Result<()>> {
+            self.poll_mock(|_| (), "mock close failure")
         }
     }
 
