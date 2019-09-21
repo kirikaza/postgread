@@ -375,7 +375,7 @@ mod test {
     }
 
     fn simplify(
-        future: &mut futures::Future<Output = io::Result<Option<Message>>>
+        future: &mut dyn futures::Future<Output = io::Result<Option<Message>>>
     ) -> Result<Option<Message>, String> {
         let pinned = unsafe { Pin::new_unchecked(future) };
         match pinned.poll(&mut noop_context()) {
