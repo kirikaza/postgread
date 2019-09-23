@@ -9,6 +9,7 @@ tasks:
       cargo build --verbose
   - clippy: |
       cd postgread/
+      rustup component add clippy
       cargo clippy -- -D warnings
   - test: |
       cd postgread/
