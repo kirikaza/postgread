@@ -4,11 +4,6 @@ packages:
 sources:
   - hg+https://hg.sr.ht/~kirikaza/postgread
 tasks:
-  - setup: |
-      rustup toolchain install nightly
-      cd postgread/
-      rustup run nightly cargo fetch
-      rustup default nightly
   - build: |
       cd postgread/
       cargo build --verbose
