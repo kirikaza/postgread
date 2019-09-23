@@ -5,18 +5,8 @@ use std::io::{self, ErrorKind::UnexpectedEof};
 
 #[derive(Debug, PartialEq)]
 pub enum Message {
-    AuthenticationOk,
-    AuthenticationKerberosV5,
-    AuthenticationCleartextPassword,
-    AuthenticationMD5Password { salt: [u8; 4] },
-    AuthenticationSCMCredential,
-    AuthenticationGSS,
-    AuthenticationSSPI,
-    AuthenticationGSSContinue { auth_data: Vec<u8> },
-    Startup {
-        version: Version,
-        params: Vec<StartupParam>,
-    },
+    Authentication(Authentication),
+    Startup(Startup),
     Unknown { note: String },
 }
 
@@ -52,59 +42,90 @@ impl Message {
         let body_len = full_len - size_of_val(&full_len) as u32;
         // TODO: protect from reading extra bytes like `stream.take(u64::from(body_len))`
         match type_byte {
-            None => Self::read_startup(stream).await,
-            Some(b'R') => Self::read_auth(stream, body_len).await,
+            None => Ok(Self::Startup(Startup::read(stream).await?)),
+            Some(b'R') => Ok(Self::Authentication(Authentication::read(stream, body_len).await?)),
             Some(type_byte) => Self::read_unknown(stream, body_len, format!("unknown message type {}", type_byte as char)).await,
         }
     }
 
-    async fn read_startup<R>(stream: &mut R) -> io::Result<Self>
-    where R: AsyncBufReadExt + Unpin      
-    {
-        let version = Version::read(stream).await?;
-        let params = StartupParam::read_many(stream).await?;
-        Ok(Message::Startup { version, params })
-    }
 
-    async fn read_auth<R>(stream: &mut R, body_len: u32) -> io::Result<Self>
+    async fn read_unknown<R>(stream: &mut R, left_len: u32, note: String) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin
+    {
+        read_and_drop(stream, left_len).await?;
+        Ok(Message::Unknown { note })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Authentication {
+    Ok,
+    KerberosV5,
+    CleartextPassword,
+    MD5Password { salt: [u8; 4] },
+    SCMCredential,
+    GSS,
+    SSPI,
+    GSSContinue { auth_data: Vec<u8> },
+    Unknown { note: String },
+}
+
+impl Authentication {
+    async fn read<R>(stream: &mut R, body_len: u32) -> io::Result<Self>
     where R: AsyncBufReadExt + Unpin      
     {
         let auth_type = read_u32(stream).await?;
         let left_len = body_len - size_of_val(&auth_type) as u32;
         match auth_type {
-            0 => Ok(Message::AuthenticationOk),
-            2 => Ok(Message::AuthenticationKerberosV5),
-            3 => Ok(Message::AuthenticationCleartextPassword),
-            5 => Self::read_auth_md5_password(stream).await,
-            6 => Ok(Message::AuthenticationSCMCredential),
-            7 => Ok(Message::AuthenticationGSS),
-            8 => Self::read_auth_gss_continue(stream, left_len).await,
-            9 => Ok(Message::AuthenticationSSPI),
-            _ => Self::read_unknown(stream, left_len, format!("unknown authentication sub-type {}", auth_type)).await,
+            0 => Ok(Self::Ok),
+            2 => Ok(Self::KerberosV5),
+            3 => Ok(Self::CleartextPassword),
+            5 => Self::read_md5_password(stream).await,
+            6 => Ok(Self::SCMCredential),
+            7 => Ok(Self::GSS),
+            8 => Self::read_gss_continue(stream, left_len).await,
+            9 => Ok(Self::SSPI),
+            _ => Self::read_unknown(stream, left_len, format!("unknown auth type {}", auth_type)).await,
         }
     }
 
-    async fn read_auth_md5_password<R>(stream: &mut R) -> io::Result<Self>
+    async fn read_md5_password<R>(stream: &mut R) -> io::Result<Self>
     where R: AsyncBufReadExt + Unpin      
     {
         let mut salt = [0u8; 4];
         stream.read_exact(&mut salt).await?;
-        Ok(Message::AuthenticationMD5Password { salt })
+        Ok(Self::MD5Password { salt })
     }
 
-    async fn read_auth_gss_continue<R>(stream: &mut R, left_len: u32) -> io::Result<Self>
+    async fn read_gss_continue<R>(stream: &mut R, left_len: u32) -> io::Result<Self>
     where R: AsyncBufReadExt + Unpin      
     {
         let mut auth_data = Vec::with_capacity(left_len as usize);
         stream.read_to_end(&mut auth_data).await?;
-        Ok(Message::AuthenticationGSSContinue { auth_data })
+        Ok(Self::GSSContinue { auth_data })
     }
 
     async fn read_unknown<R>(stream: &mut R, left_len: u32, note: String) -> io::Result<Self>
     where R: AsyncBufReadExt + Unpin      
     {
         read_and_drop(stream, left_len).await?;
-        Ok(Message::Unknown { note })
+        Ok(Self::Unknown { note })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Startup {
+    version: Version,
+    params: Vec<StartupParam>,
+}
+
+impl Startup {
+    async fn read<R>(stream: &mut R) -> io::Result<Self>
+        where R: AsyncBufReadExt + Unpin
+    {
+        let version = Version::read(stream).await?;
+        let params = StartupParam::read_many(stream).await?;
+        Ok(Startup { version, params })
     }
 }
 
@@ -221,158 +242,177 @@ fn error_other(msg: &str) -> io::Error {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    mod authentication {
+        use super::super::{Authentication::{self, *}, Message};
+        use super::simplify;
+
+        #[test]
+        fn authentication_ok() {
+            let mut bytes: &[u8] = &[
+                b'R',
+                0,0,0,8, // len
+                0,0,0,0, // ok
+            ];
+            assert_eq!(
+                msg(Ok),
+                simplify(&mut Message::read(&mut bytes, false)),
+            );
+        }
+
+        #[test]
+        fn authentication_kerberos_v5() {
+            let mut bytes: &[u8] = &[
+                b'R',
+                0,0,0,8, // len
+                0,0,0,2, // Kerberos V5 is required
+            ];
+            assert_eq!(
+                msg(KerberosV5),
+                simplify(&mut Message::read(&mut bytes, false)),
+            );
+        }
+
+        #[test]
+        fn authentication_cleartext_password() {
+            let mut bytes: &[u8] = &[
+                b'R',
+                0,0,0,8, // len
+                0,0,0,3, // cleartext password is required
+            ];
+            assert_eq!(
+                msg(CleartextPassword),
+                simplify(&mut Message::read(&mut bytes, false)),
+            );
+        }
+
+        #[test]
+        fn md5_password() {
+            let mut bytes: &[u8] = &[
+                b'R',
+                0,0,0,12, // len
+                0,0,0,5, // MD5 password is required
+                1,2,3,4, // salt
+            ];
+            assert_eq!(
+                msg(MD5Password { salt: [1,2,3,4] }),
+                simplify(&mut Message::read(&mut bytes, false)),
+            );
+        }
+
+        #[test]
+        fn scm_credential() {
+            let mut bytes: &[u8] = &[
+                b'R',
+                0,0,0,8, // len
+                0,0,0,6, // SCM credentials message is required
+            ];
+            assert_eq!(
+                msg(SCMCredential),
+                simplify(&mut Message::read(&mut bytes, false)),
+            );
+        }
+
+        #[test]
+        fn gss() {
+            let mut bytes: &[u8] = &[
+                b'R',
+                0,0,0,8, // len
+                0,0,0,7, // GSSAPI authentication is required
+            ];
+            assert_eq!(
+                msg(GSS),
+                simplify(&mut Message::read(&mut bytes, false)),
+            );
+        }
+
+        #[test]
+        fn sspi() {
+            let mut bytes: &[u8] = &[
+                b'R',
+                0,0,0,8, // len
+                0,0,0,9, // SSPI authentication is required
+            ];
+            assert_eq!(
+                msg(SSPI),
+                simplify(&mut Message::read(&mut bytes, false)),
+            );
+        }
+
+        #[test]
+        fn gss_continue() {
+            let mut bytes: &[u8] = &[
+                b'R',
+                0,0,0,11, // len
+                0,0,0,8, // contains GSS or SSPI data
+                b'G', b'S', b'S', // data
+            ];
+            assert_eq!(
+                msg(GSSContinue { auth_data: "GSS".as_bytes().to_vec() }),
+                simplify(&mut Message::read(&mut bytes, false)),
+            );
+        }
+
+        const fn msg(auth: Authentication) -> Result<Option<Message>, String> {
+            Result::Ok(Some(Message::Authentication(auth)))
+        }
+    }
+
+    mod startup {
+        use super::super::{Message, Startup, StartupParam, Version};
+        use super::simplify;
+
+        #[test]
+        fn without_params() {
+            let mut bytes: &[u8] = &[
+                0, 0, 0, 9, // len
+                0, 3, 0, 1, // version
+                0, // params
+            ];
+            assert_eq!(
+                msg(Startup {
+                    version: Version { major: 3, minor: 1 },
+                    params: vec![],
+                }),
+                simplify(&mut Message::read(&mut bytes, true)),
+            );
+        }
+
+        #[test]
+        fn with_params() {
+            let mut bytes = vec![
+                0, 0, 0, 37, // len
+                0, 3, 1, 0, // version
+            ];
+            bytes.extend_from_slice(b"user\0root\0database\0postgres\0\0");
+            let mut bytes = &bytes[..];
+            assert_eq!(
+                msg(Startup {
+                    version: Version { major: 3, minor: 0x100 },
+                    params: vec![
+                        StartupParam {
+                            name: Vec::from(&b"user"[..]),
+                            value: Vec::from(&b"root"[..]),
+                        },
+                        StartupParam {
+                            name: Vec::from(&b"database"[..]),
+                            value: Vec::from(&b"postgres"[..]),
+                        },
+                    ],
+                }),
+                simplify(&mut Message::read(&mut bytes, true)),
+            );
+        }
+
+        const fn msg(startup: Startup) -> Result<Option<Message>, String> {
+            Result::Ok(Some(Message::Startup(startup)))
+        }
+    }
+
+    use super::Message;
     use futures::task::Poll::*;
     use futures_test::task::noop_context;
+    use std::io;
     use std::pin::Pin;
-
-    #[test]
-    fn authentication_ok() {
-        let mut bytes: &[u8] = &[
-            b'R',
-            0,0,0,8, // len
-            0,0,0,0, // ok
-        ];
-        assert_eq!(
-            Ok(Some(Message::AuthenticationOk)),
-            simplify(&mut Message::read(&mut bytes, false)),
-        );
-    }
-    
-    #[test]
-    fn authentication_kerberos_v5() {
-        let mut bytes: &[u8] = &[
-            b'R',
-            0,0,0,8, // len
-            0,0,0,2, // Kerberos V5 is required
-        ];
-        assert_eq!(
-            Ok(Some(Message::AuthenticationKerberosV5)),
-            simplify(&mut Message::read(&mut bytes, false)),
-        );
-    }
-    
-    #[test]
-    fn authentication_cleartext_password() {
-        let mut bytes: &[u8] = &[
-            b'R',
-            0,0,0,8, // len
-            0,0,0,3, // cleartext password is required
-        ];
-        assert_eq!(
-            Ok(Some(Message::AuthenticationCleartextPassword)),
-            simplify(&mut Message::read(&mut bytes, false)),
-        );
-    }
-    
-    #[test]
-    fn authentication_md5_password() {
-        let mut bytes: &[u8] = &[
-            b'R',
-            0,0,0,12, // len
-            0,0,0,5, // MD5 password is required
-            1,2,3,4, // salt
-        ];
-        assert_eq!(
-            Ok(Some(Message::AuthenticationMD5Password { salt: [1,2,3,4] })),
-            simplify(&mut Message::read(&mut bytes, false)),
-        );
-    }
-    
-    #[test]
-    fn authentication_scm_credential() {
-        let mut bytes: &[u8] = &[
-            b'R',
-            0,0,0,8, // len
-            0,0,0,6, // SCM credentials message is required
-        ];
-        assert_eq!(
-            Ok(Some(Message::AuthenticationSCMCredential)),
-            simplify(&mut Message::read(&mut bytes, false)),
-        );
-    }
-    
-    #[test]
-    fn authentication_gss() {
-        let mut bytes: &[u8] = &[
-            b'R',
-            0,0,0,8, // len
-            0,0,0,7, // GSSAPI authentication is required
-        ];
-        assert_eq!(
-            Ok(Some(Message::AuthenticationGSS)),
-            simplify(&mut Message::read(&mut bytes, false)),
-        );
-    }
-    
-    #[test]
-    fn authentication_sspi() {
-        let mut bytes: &[u8] = &[
-            b'R',
-            0,0,0,8, // len
-            0,0,0,9, // SSPI authentication is required
-        ];
-        assert_eq!(
-            Ok(Some(Message::AuthenticationSSPI)),
-            simplify(&mut Message::read(&mut bytes, false)),
-        );
-    }
-    
-    #[test]
-    fn authentication_gss_continue() {
-        let mut bytes: &[u8] = &[
-            b'R',
-            0,0,0,11, // len
-            0,0,0,8, // contains GSS or SSPI data
-            b'G', b'S', b'S', // data
-        ];
-        assert_eq!(
-            Ok(Some(Message::AuthenticationGSSContinue { auth_data: "GSS".as_bytes().to_vec() })),
-            simplify(&mut Message::read(&mut bytes, false)),
-        );
-    }
-    
-    #[test]
-    fn startup_without_params() {
-        let mut bytes: &[u8] = &[
-            0,0,0,9, // len
-            0,3,0,1, // version
-            0, // params
-        ];
-        assert_eq!(
-            Ok(Some(Message::Startup {
-                version: Version { major: 3, minor: 1 },
-                params: vec![],
-            })),
-            simplify(&mut Message::read(&mut bytes, true)),
-        );
-    }
-
-    #[test]
-    fn startup_with_params() {
-        let mut bytes = vec![
-            0,0,0,37, // len
-            0,3,1,0, // version
-        ];
-        bytes.extend_from_slice(b"user\0root\0database\0postgres\0\0");
-        let mut bytes = &bytes[..];
-        assert_eq!(
-            Ok(Some(Message::Startup {
-                version: Version { major: 3, minor: 0x100 },
-                params: vec![
-                    StartupParam {
-                        name: Vec::from(&b"user"[..]),
-                        value: Vec::from(&b"root"[..]),
-                    },
-                    StartupParam {
-                        name: Vec::from(&b"database"[..]),
-                        value: Vec::from(&b"postgres"[..]),
-                    },
-                ],
-            })),
-           simplify(&mut Message::read(&mut bytes, true)),
-        );        
-    }
 
     fn simplify(
         future: &mut dyn futures::Future<Output = io::Result<Option<Message>>>
