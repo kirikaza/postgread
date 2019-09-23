@@ -7,6 +7,9 @@ tasks:
   - build: |
       cd postgread/
       cargo build --verbose
+  - clippy: |
+      cd postgread/
+      cargo clippy -- -D warnings
   - test: |
       cd postgread/
       cargo test --verbose
