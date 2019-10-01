@@ -4,56 +4,85 @@ use std::mem::{size_of_val};
 use std::io::{self, ErrorKind::UnexpectedEof};
 
 #[derive(Debug, PartialEq)]
-pub enum Message {
+pub enum BackendMessage {
     Authentication(Authentication),
-    Startup(Startup),
-    Unknown { note: String },
+    Unknown(Unknown),
 }
 
-impl Message {
-    pub async fn read<R>(stream: &mut R, is_first_msg: bool) -> io::Result<Option<Self>>
+#[derive(Debug, PartialEq)]
+pub enum FrontendMessage {
+    Startup(Startup),
+    Unknown(Unknown),
+}
+
+impl BackendMessage {
+    pub async fn read<R>(stream: &mut R) -> io::Result<Option<Self>>
     where R: AsyncBufReadExt + Unpin      
     {
-        match read_u8(stream).await {
-            Ok(first_byte) =>
-                Ok(Some(Self::read_ahead(first_byte, stream, is_first_msg).await?)),
-            Err(e) => match e.kind() {
-                UnexpectedEof => Ok(None),
-                _ => Err(e),
+        match accept_eof(read_u8(stream).await)? {
+            Some(type_byte) => {
+                let full_len = read_u32(stream).await?;
+                Ok(Some(Self::read_body(stream, type_byte, full_len).await?))
             },
+            None => Ok(None),
         }
     }
 
-    async fn read_ahead<R>(first_byte: u8, stream: &mut R, is_first_msg: bool) -> io::Result<Self>
-    where R: AsyncBufReadExt + Unpin      
-    {
-        if is_first_msg {
-            let full_len = read_u32_tail(first_byte, stream).await?;
-            Self::read_body(stream, None, full_len).await
-        } else {
-            let full_len = read_u32(stream).await?;
-            Self::read_body(stream, Some(first_byte), full_len).await
-        }
-    }
-
-    async fn read_body<R>(stream: &mut R, type_byte: Option<u8>, full_len: u32) -> io::Result<Self>
-    where R: AsyncBufReadExt + Unpin      
+    async fn read_body<R>(stream: &mut R, type_byte: u8, full_len: u32) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin
     {
         let body_len = full_len - size_of_val(&full_len) as u32;
         // TODO: protect from reading extra bytes like `stream.take(u64::from(body_len))`
         match type_byte {
-            None => Ok(Self::Startup(Startup::read(stream).await?)),
-            Some(b'R') => Ok(Self::Authentication(Authentication::read(stream, body_len).await?)),
-            Some(type_byte) => Self::read_unknown(stream, body_len, format!("unknown message type {}", type_byte as char)).await,
+            b'R' => {
+                let body = Authentication::read(stream, body_len).await?;
+                Ok(Self::Authentication(body))
+            },
+            _ => {
+                let body = Unknown::read(stream, body_len, format!("message type {}", type_byte as char)).await?;
+                Ok(Self::Unknown(body))
+            },
+        }
+    }
+}
+
+impl FrontendMessage {
+    pub async fn read<R>(stream: &mut R, is_first_msg: bool) -> io::Result<Option<Self>>
+    where R: AsyncBufReadExt + Unpin
+    {
+        if is_first_msg {
+            match accept_eof(read_u32(stream).await)? {
+                Some(full_len) => {
+                    Ok(Some(Self::read_body(stream, None, full_len).await?))
+                },
+                None => Ok(None),
+            }
+        } else {
+            match accept_eof(read_u8(stream).await)? {
+                Some(type_byte) => {
+                    let full_len = read_u32(stream).await?;
+                    Ok(Some(Self::read_body(stream, Some(type_byte), full_len).await?))
+                },
+                None => Ok(None),
+            }
         }
     }
 
-
-    async fn read_unknown<R>(stream: &mut R, left_len: u32, note: String) -> io::Result<Self>
+    async fn read_body<R>(stream: &mut R, type_byte: Option<u8>, full_len: u32) -> io::Result<Self>
     where R: AsyncBufReadExt + Unpin
     {
-        read_and_drop(stream, left_len).await?;
-        Ok(Message::Unknown { note })
+        let body_len = full_len - size_of_val(&full_len) as u32;
+        // TODO: protect from reading extra bytes like `stream.take(u64::from(body_len))`
+        match type_byte {
+            None => {
+                let body = Startup::read(stream).await?;
+                Ok(Self::Startup(body))
+            },
+            Some(type_byte) => {
+                let body = Unknown::read(stream, body_len, format!("message type {}", type_byte as char)).await?;
+                Ok(Self::Unknown(body))
+            },
+        }
     }
 }
 
@@ -67,12 +96,12 @@ pub enum Authentication {
     GSS,
     SSPI,
     GSSContinue { auth_data: Vec<u8> },
-    Unknown { note: String },
+    Unknown(Unknown),
 }
 
 impl Authentication {
     async fn read<R>(stream: &mut R, body_len: u32) -> io::Result<Self>
-    where R: AsyncBufReadExt + Unpin      
+    where R: AsyncBufReadExt + Unpin
     {
         let auth_type = read_u32(stream).await?;
         let left_len = body_len - size_of_val(&auth_type) as u32;
@@ -85,12 +114,12 @@ impl Authentication {
             7 => Ok(Self::GSS),
             8 => Self::read_gss_continue(stream, left_len).await,
             9 => Ok(Self::SSPI),
-            _ => Self::read_unknown(stream, left_len, format!("unknown auth type {}", auth_type)).await,
+            _ => Ok(Self::Unknown(Unknown::read(stream, left_len, format!("auth type {}", auth_type)).await?)),
         }
     }
 
     async fn read_md5_password<R>(stream: &mut R) -> io::Result<Self>
-    where R: AsyncBufReadExt + Unpin      
+    where R: AsyncBufReadExt + Unpin
     {
         let mut salt = [0u8; 4];
         stream.read_exact(&mut salt).await?;
@@ -98,18 +127,11 @@ impl Authentication {
     }
 
     async fn read_gss_continue<R>(stream: &mut R, left_len: u32) -> io::Result<Self>
-    where R: AsyncBufReadExt + Unpin      
+    where R: AsyncBufReadExt + Unpin
     {
         let mut auth_data = Vec::with_capacity(left_len as usize);
         stream.read_to_end(&mut auth_data).await?;
         Ok(Self::GSSContinue { auth_data })
-    }
-
-    async fn read_unknown<R>(stream: &mut R, left_len: u32, note: String) -> io::Result<Self>
-    where R: AsyncBufReadExt + Unpin      
-    {
-        read_and_drop(stream, left_len).await?;
-        Ok(Self::Unknown { note })
     }
 }
 
@@ -179,6 +201,31 @@ impl Debug for StartupParam {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct Unknown {
+    note: String,
+}
+
+impl Unknown {
+    async fn read<R>(stream: &mut R, body_len: u32, note: String) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin
+    {
+        read_and_drop(stream, body_len).await?;
+        Ok(Self { note })
+    }
+}
+
+fn accept_eof<T>(result: io::Result<T>) -> io::Result<Option<T>> {
+    match result {
+        Ok(data) =>
+            Ok(Some(data)),
+        Err(e) => match e.kind() {
+            UnexpectedEof => Ok(None),
+            _ => Err(e),
+        },
+    }
+}
+
 async fn read_u8<R>(stream: &mut R) -> io::Result<u8>
 where R: AsyncReadExt + Unpin
 {
@@ -201,15 +248,6 @@ where R: AsyncReadExt + Unpin
     let mut buf = [0u8; 4];
     stream.read_exact(&mut buf).await?;
     Ok(u32::from_be_bytes(buf))
-}
-
-async fn read_u32_tail<R>(head: u8, stream: &mut R) -> io::Result<u32>
-where R: AsyncReadExt + Unpin
-{
-    let mut tail = [0u8; 3];
-    stream.read_exact(&mut tail).await?;
-    let bytes = [head, tail[0], tail[1], tail[2]];
-    Ok(u32::from_be_bytes(bytes))
 }
 
 async fn read_null_terminated<R>(stream: &mut R) -> io::Result<Vec<u8>>
@@ -243,7 +281,7 @@ fn error_other(msg: &str) -> io::Error {
 #[cfg(test)]
 mod test {
     mod authentication {
-        use super::super::{Authentication::{self, *}, Message};
+        use super::super::{Authentication::{self, *}, BackendMessage};
         use super::simplify;
 
         #[test]
@@ -255,7 +293,7 @@ mod test {
             ];
             assert_eq!(
                 msg(Ok),
-                simplify(&mut Message::read(&mut bytes, false)),
+                simplify(&mut BackendMessage::read(&mut bytes)),
             );
         }
 
@@ -268,7 +306,7 @@ mod test {
             ];
             assert_eq!(
                 msg(KerberosV5),
-                simplify(&mut Message::read(&mut bytes, false)),
+                simplify(&mut BackendMessage::read(&mut bytes)),
             );
         }
 
@@ -281,7 +319,7 @@ mod test {
             ];
             assert_eq!(
                 msg(CleartextPassword),
-                simplify(&mut Message::read(&mut bytes, false)),
+                simplify(&mut BackendMessage::read(&mut bytes)),
             );
         }
 
@@ -295,7 +333,7 @@ mod test {
             ];
             assert_eq!(
                 msg(MD5Password { salt: [1,2,3,4] }),
-                simplify(&mut Message::read(&mut bytes, false)),
+                simplify(&mut BackendMessage::read(&mut bytes)),
             );
         }
 
@@ -308,7 +346,7 @@ mod test {
             ];
             assert_eq!(
                 msg(SCMCredential),
-                simplify(&mut Message::read(&mut bytes, false)),
+                simplify(&mut BackendMessage::read(&mut bytes)),
             );
         }
 
@@ -321,7 +359,7 @@ mod test {
             ];
             assert_eq!(
                 msg(GSS),
-                simplify(&mut Message::read(&mut bytes, false)),
+                simplify(&mut BackendMessage::read(&mut bytes)),
             );
         }
 
@@ -334,7 +372,7 @@ mod test {
             ];
             assert_eq!(
                 msg(SSPI),
-                simplify(&mut Message::read(&mut bytes, false)),
+                simplify(&mut BackendMessage::read(&mut bytes)),
             );
         }
 
@@ -348,17 +386,17 @@ mod test {
             ];
             assert_eq!(
                 msg(GSSContinue { auth_data: "GSS".as_bytes().to_vec() }),
-                simplify(&mut Message::read(&mut bytes, false)),
+                simplify(&mut BackendMessage::read(&mut bytes)),
             );
         }
 
-        const fn msg(auth: Authentication) -> Result<Option<Message>, String> {
-            Result::Ok(Some(Message::Authentication(auth)))
+        const fn msg(auth: Authentication) -> Result<Option<BackendMessage>, String> {
+            Result::Ok(Some(BackendMessage::Authentication(auth)))
         }
     }
 
     mod startup {
-        use super::super::{Message, Startup, StartupParam, Version};
+        use super::super::{FrontendMessage, Startup, StartupParam, Version};
         use super::simplify;
 
         #[test]
@@ -373,7 +411,7 @@ mod test {
                     version: Version { major: 3, minor: 1 },
                     params: vec![],
                 }),
-                simplify(&mut Message::read(&mut bytes, true)),
+                simplify(&mut FrontendMessage::read(&mut bytes, true)),
             );
         }
 
@@ -399,24 +437,23 @@ mod test {
                         },
                     ],
                 }),
-                simplify(&mut Message::read(&mut bytes, true)),
+                simplify(&mut FrontendMessage::read(&mut bytes, true)),
             );
         }
 
-        const fn msg(startup: Startup) -> Result<Option<Message>, String> {
-            Result::Ok(Some(Message::Startup(startup)))
+        const fn msg(startup: Startup) -> Result<Option<FrontendMessage>, String> {
+            Result::Ok(Some(FrontendMessage::Startup(startup)))
         }
     }
 
-    use super::Message;
     use futures::task::Poll::*;
     use futures_test::task::noop_context;
     use std::io;
     use std::pin::Pin;
 
-    fn simplify(
-        future: &mut dyn futures::Future<Output = io::Result<Option<Message>>>
-    ) -> Result<Option<Message>, String> {
+    fn simplify<M>(
+        future: &mut dyn futures::Future<Output = io::Result<Option<M>>>
+    ) -> Result<Option<M>, String> {
         let pinned = unsafe { Pin::new_unchecked(future) };
         match pinned.poll(&mut noop_context()) {
             Ready(ready) => ready.map_err(|e| e.to_string()),
