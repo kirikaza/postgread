@@ -7,7 +7,7 @@ extern crate tokio;
 
 use futures::io::{AsyncRead, AsyncWrite, BufReader};
 use postgread::dup::DupReader;
-use postgread::msg::Message;
+use postgread::msg::{BackendMessage, FrontendMessage};
 use postgread::tokio_compat::compat;
 use std::net::{IpAddr, SocketAddr};
 use std::io;
@@ -30,7 +30,7 @@ struct Config {
     target_port: u16,
 }
 
-fn convey_messages<R, W>(from: R, to: W, mut first: bool, name: &'static str) -> io::Result<()>
+fn convey_backend_messages<R, W>(from: R, to: W) -> io::Result<()>
 where
     R: 'static + AsyncRead + Send + Unpin,
     W: 'static + AsyncWrite + Send + Unpin,
@@ -38,20 +38,47 @@ where
     tokio::spawn(async move {
         let mut dup = BufReader::new(DupReader::new(from, to));
         loop {
-            match Message::read(&mut dup, first).await {
+            match BackendMessage::read(&mut dup).await {
                 Ok(None) => {
-                    println!("{} finished", name);
+                    println!("server finished");
                     break;
                 },
                 Ok(Some(msg)) => {
-                    println!("{} sent {:?}", name, msg);
-                    first = false;
+                    println!("server sent {:?}", msg);
                 },
                 Err(err) => {
-                    println!("{} behaved unexpectedly: {:?}", name, err);
+                    println!("server behaved unexpectedly: {:?}", err);
                     break;
                 },
             }
+        }
+    });
+    Ok(())
+}
+
+fn convey_frontend_messages<R, W>(from: R, to: W) -> io::Result<()>
+    where
+        R: 'static + AsyncRead + Send + Unpin,
+        W: 'static + AsyncWrite + Send + Unpin,
+{
+    tokio::spawn(async move {
+        let mut first = true;
+        let mut dup = BufReader::new(DupReader::new(from, to));
+        loop {
+            match FrontendMessage::read(&mut dup, first).await {
+                Ok(None) => {
+                    println!("client finished");
+                    break;
+                },
+                Ok(Some(msg)) => {
+                    println!("client sent {:?}", msg);
+                },
+                Err(err) => {
+                    println!("client behaved unexpectedly: {:?}", err);
+                    break;
+                },
+            }
+            first = false;
         }
     });
     Ok(())
@@ -68,8 +95,8 @@ async fn handle_client(config: Config, client: TcpStream) -> io::Result<()> {
                 println!("connected to target server {}", server.local_addr().unwrap());
                 match (client.split(), server.split()) {
                     ((from_client, to_client), (from_server, to_server)) => {
-                        convey_messages(compat(from_client), compat(to_server), true, "client").unwrap();
-                        convey_messages(compat(from_server), compat(to_client), false, "server").unwrap();
+                        convey_frontend_messages(compat(from_client), compat(to_server)).unwrap();
+                        convey_backend_messages(compat(from_server), compat(to_client)).unwrap();
                     }
                 }
             },
