@@ -6,6 +6,7 @@ use std::io::{self, ErrorKind::UnexpectedEof};
 #[derive(Debug, PartialEq)]
 pub enum BackendMessage {
     Authentication(Authentication),
+    ParameterStatus(ParameterStatus),
     Unknown(Unknown),
 }
 
@@ -37,6 +38,10 @@ impl BackendMessage {
             b'R' => {
                 let body = Authentication::read(stream, body_len).await?;
                 Ok(Self::Authentication(body))
+            },
+            b'S' => {
+                let body = ParameterStatus::read(stream).await?;
+                Ok(Self::ParameterStatus(body))
             },
             _ => {
                 let body = Unknown::read(stream, body_len, format!("message type {}", type_byte as char)).await?;
@@ -135,6 +140,32 @@ impl Authentication {
     }
 }
 
+#[derive(PartialEq)]
+pub struct ParameterStatus {
+    name: Vec<u8>,
+    value: Vec<u8>,
+}
+
+impl ParameterStatus {
+    async fn read<R>(stream: &mut R) -> io::Result<Self>
+    where R: AsyncBufReadExt + Unpin
+    {
+        let mut name = read_null_terminated(stream).await?;
+        let mut value = read_null_terminated(stream).await?;
+        name.pop();
+        value.pop();
+        Ok(Self { name, value })
+    }
+}
+
+impl Debug for ParameterStatus {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "ParameterStatus {{ \"{}\": \"{}\" }}",
+               String::from_utf8_lossy(&self.name),
+               String::from_utf8_lossy(&self.value))
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Startup {
     version: Version,
@@ -143,7 +174,7 @@ pub struct Startup {
 
 impl Startup {
     async fn read<R>(stream: &mut R) -> io::Result<Self>
-        where R: AsyncBufReadExt + Unpin
+    where R: AsyncBufReadExt + Unpin
     {
         let version = Version::read(stream).await?;
         let params = StartupParam::read_many(stream).await?;
@@ -392,6 +423,32 @@ mod test {
 
         const fn msg(auth: Authentication) -> Result<Option<BackendMessage>, String> {
             Result::Ok(Some(BackendMessage::Authentication(auth)))
+        }
+    }
+
+    mod parameter_status {
+        use super::super::{BackendMessage, ParameterStatus};
+        use super::simplify;
+
+        #[test]
+        fn simple() {
+            let mut bytes = vec![
+                b'S',
+                0, 0, 0, 13, // len
+            ];
+            bytes.extend_from_slice(b"TimeZone\0UTC\0");
+            let mut bytes = &bytes[..];
+            assert_eq!(
+                msg(ParameterStatus {
+                    name: Vec::from(&b"TimeZone"[..]),
+                    value: Vec::from(&b"UTC"[..]),
+                }),
+                simplify(&mut BackendMessage::read(&mut bytes)),
+            );
+        }
+
+        const fn msg(startup: ParameterStatus) -> Result<Option<BackendMessage>, String> {
+            Result::Ok(Some(BackendMessage::ParameterStatus(startup)))
         }
     }
 
