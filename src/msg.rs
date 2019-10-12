@@ -35,11 +35,11 @@ impl BackendMessage {
         let body_len = full_len - size_of_val(&full_len) as u32;
         // TODO: protect from reading extra bytes like `stream.take(u64::from(body_len))`
         match type_byte {
-            b'R' => {
+            Authentication::TYPE_BYTE => {
                 let body = Authentication::read(stream, body_len).await?;
                 Ok(Self::Authentication(body))
             },
-            b'S' => {
+            ParameterStatus::TYPE_BYTE => {
                 let body = ParameterStatus::read(stream).await?;
                 Ok(Self::ParameterStatus(body))
             },
@@ -105,6 +105,8 @@ pub enum Authentication {
 }
 
 impl Authentication {
+    const TYPE_BYTE: u8 = b'R';
+
     async fn read<R>(stream: &mut R, body_len: u32) -> io::Result<Self>
     where R: AsyncBufReadExt + Unpin
     {
@@ -147,6 +149,8 @@ pub struct ParameterStatus {
 }
 
 impl ParameterStatus {
+    const TYPE_BYTE: u8 = b'S';
+
     async fn read<R>(stream: &mut R) -> io::Result<Self>
     where R: AsyncBufReadExt + Unpin
     {
