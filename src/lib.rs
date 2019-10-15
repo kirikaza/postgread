@@ -1,6 +1,7 @@
-extern crate bytes;
 #[macro_use] extern crate futures;
 extern crate tokio;
+
+#[cfg(test)] extern crate bytes;
 
 pub mod dup;
 pub mod msg;
