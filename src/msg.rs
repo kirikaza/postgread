@@ -32,6 +32,42 @@ pub enum FrontendMessage {
     Unknown(Unknown),
 }
 
+macro_rules! read_body_and_wrap {
+    (
+        $body_type_name:ident,
+        $($arg:expr),*
+    ) => {
+        {
+            let body = $body_type_name::read($($arg,)*).await?;
+            Ok(Self::$body_type_name(body))
+        }
+    };
+}
+
+macro_rules! read_body_by_type {
+    (
+        ($stream:ident, $type_byte:ident, $full_len:ident),
+        [$($body_type_name: ident),*]
+    ) => {
+        {
+            let body_len = $full_len - size_of_val(&$full_len) as u32;
+            // TODO: protect from reading extra bytes like `stream.take(u64::from(body_len))`
+            match $type_byte {
+                $(
+                    $body_type_name::TYPE_BYTE =>
+                        read_body_and_wrap!($body_type_name, $stream, body_len),
+                )*
+                _ => {
+                    let type_sym = $type_byte.map(|byte| byte as char);
+                    let msg = format!("message type {:?}", type_sym);
+                    read_body_and_wrap!(Unknown, $stream, body_len, msg)
+                },
+
+            }
+        }
+    };
+}
+
 impl BackendMessage {
     pub async fn read<R>(stream: &mut R) -> IoResult<Option<Self>>
     where R: AsyncBufReadExt + Unpin      
@@ -39,30 +75,18 @@ impl BackendMessage {
         match accept_eof(read_u8(stream).await)? {
             Some(type_byte) => {
                 let full_len = read_u32(stream).await?;
-                Ok(Some(Self::read_body(stream, type_byte, full_len).await?))
+                Ok(Some(Self::read_body(stream, Some(type_byte), full_len).await?))
             },
             None => Ok(None),
         }
     }
 
-    async fn read_body<R>(stream: &mut R, type_byte: u8, full_len: u32) -> IoResult<Self>
+    async fn read_body<R>(stream: &mut R, type_byte: Option<u8>, full_len: u32) -> IoResult<Self>
     where R: AsyncBufReadExt + Unpin
     {
-        let body_len = full_len - size_of_val(&full_len) as u32;
-        // TODO: protect from reading extra bytes like `stream.take(u64::from(body_len))`
-        match type_byte {
-            Authentication::TYPE_BYTE => {
-                let body = Authentication::read(stream, body_len).await?;
-                Ok(Self::Authentication(body))
-            },
-            ParameterStatus::TYPE_BYTE => {
-                let body = ParameterStatus::read(stream).await?;
-                Ok(Self::ParameterStatus(body))
-            },
-            _ => {
-                let body = Unknown::read(stream, body_len, format!("message type {}", type_byte as char)).await?;
-                Ok(Self::Unknown(body))
-            },
+        read_body_by_type! {
+            (stream, type_byte, full_len),
+            [Authentication, ParameterStatus]
         }
     }
 }
@@ -92,17 +116,9 @@ impl FrontendMessage {
     async fn read_body<R>(stream: &mut R, type_byte: Option<u8>, full_len: u32) -> IoResult<Self>
     where R: AsyncBufReadExt + Unpin
     {
-        let body_len = full_len - size_of_val(&full_len) as u32;
-        // TODO: protect from reading extra bytes like `stream.take(u64::from(body_len))`
-        match type_byte {
-            None => {
-                let body = Startup::read(stream).await?;
-                Ok(Self::Startup(body))
-            },
-            Some(type_byte) => {
-                let body = Unknown::read(stream, body_len, format!("message type {}", type_byte as char)).await?;
-                Ok(Self::Unknown(body))
-            },
+        read_body_by_type! {
+            (stream, type_byte, full_len),
+            [Startup]
         }
     }
 }
