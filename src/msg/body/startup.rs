@@ -10,7 +10,9 @@ pub struct Startup {
 }
 
 impl Startup {
-    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
+    pub const TYPE_BYTE: Option<u8> = None;
+
+    pub async fn read<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
     where R: AsyncBufReadExt + Unpin
     {
         let version = Version::read(stream).await?;

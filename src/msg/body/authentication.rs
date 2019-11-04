@@ -18,7 +18,7 @@ pub enum Authentication {
 }
 
 impl Authentication {
-    pub const TYPE_BYTE: u8 = b'R';
+    pub const TYPE_BYTE: Option<u8> = Some(b'R');
 
     pub async fn read<R>(stream: &mut R, body_len: u32) -> IoResult<Self>
     where R: AsyncBufReadExt + Unpin

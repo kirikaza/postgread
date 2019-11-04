@@ -10,9 +10,9 @@ pub struct ParameterStatus {
 }
 
 impl ParameterStatus {
-    pub const TYPE_BYTE: u8 = b'S';
+    pub const TYPE_BYTE: Option<u8> = Some(b'S');
 
-    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
+    pub async fn read<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
         where R: AsyncBufReadExt + Unpin
     {
         let mut name = read_null_terminated(stream).await?;
