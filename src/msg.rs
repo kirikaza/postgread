@@ -2,6 +2,7 @@ pub mod body {
     pub mod authentication;
     pub mod parameter_status;
     pub mod startup;
+    pub mod terminate;
     pub mod unknown;
 }
 mod io;
@@ -12,6 +13,7 @@ mod test_util;
 use body::authentication::Authentication;
 use body::parameter_status::ParameterStatus;
 use body::startup::Startup;
+use body::terminate::Terminate;
 use body::unknown::Unknown;
 use io::*;
 
@@ -29,6 +31,7 @@ pub enum BackendMessage {
 #[derive(Debug, PartialEq)]
 pub enum FrontendMessage {
     Startup(Startup),
+    Terminate(Terminate),
     Unknown(Unknown),
 }
 
@@ -120,7 +123,7 @@ impl FrontendMessage {
     {
         read_body_by_type! {
             (stream, type_byte, full_len),
-            [Startup]
+            [Startup, Terminate]
         }
     }
 }
