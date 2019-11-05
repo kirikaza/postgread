@@ -24,7 +24,7 @@ impl ReadyForQuery {
             b'I' => Status::Idle,
             b'T' => Status::Transaction,
             b'E' => Status::Error,
-            byte => Err(error_other(&format!("incorrect status {}", byte as char)))?,
+            byte => return Err(error_other(&format!("incorrect status {}", byte as char))),
         };
         Ok(Self { status })
     }
@@ -34,7 +34,6 @@ impl ReadyForQuery {
 mod tests {
     use super::{ReadyForQuery, Status::*};
     use crate::msg::BackendMessage;
-    use crate::msg::io::error_other;
     use crate::msg::test_util::*;
 
     #[test]
