@@ -70,15 +70,17 @@ macro_rules! read_body_by_type {
 
 impl BackendMessage {
     pub async fn read<R>(stream: &mut R) -> IoResult<Option<Self>>
-    where R: AsyncBufReadExt + Unpin      
+    where R: AsyncBufReadExt + Unpin
     {
-        match accept_eof(read_u8(stream).await)? {
-            Some(type_byte) => {
-                let full_len = read_u32(stream).await?;
-                Ok(Some(Self::read_body(stream, Some(type_byte), full_len).await?))
-            },
-            None => Ok(None),
-        }
+        Ok(
+            match accept_eof(read_u8(stream).await)? {
+                Some(type_byte) => {
+                    let full_len = read_u32(stream).await?;
+                    Some(Self::read_body(stream, Some(type_byte), full_len).await?)
+                }
+                None => None,
+            }
+        )
     }
 
     async fn read_body<R>(stream: &mut R, type_byte: Option<u8>, full_len: u32) -> IoResult<Self>
@@ -95,22 +97,22 @@ impl FrontendMessage {
     pub async fn read<R>(stream: &mut R, is_first_msg: bool) -> IoResult<Option<Self>>
     where R: AsyncBufReadExt + Unpin
     {
-        if is_first_msg {
-            match accept_eof(read_u32(stream).await)? {
-                Some(full_len) => {
-                    Ok(Some(Self::read_body(stream, None, full_len).await?))
-                },
-                None => Ok(None),
+        Ok(
+            if is_first_msg {
+                match accept_eof(read_u32(stream).await)? {
+                    Some(full_len) => Some(Self::read_body(stream, None, full_len).await?),
+                    None => None,
+                }
+            } else {
+                match accept_eof(read_u8(stream).await)? {
+                    Some(type_byte) => {
+                        let full_len = read_u32(stream).await?;
+                        Some(Self::read_body(stream, Some(type_byte), full_len).await?)
+                    }
+                    None => None,
+                }
             }
-        } else {
-            match accept_eof(read_u8(stream).await)? {
-                Some(type_byte) => {
-                    let full_len = read_u32(stream).await?;
-                    Ok(Some(Self::read_body(stream, Some(type_byte), full_len).await?))
-                },
-                None => Ok(None),
-            }
-        }
+        )
     }
 
     async fn read_body<R>(stream: &mut R, type_byte: Option<u8>, full_len: u32) -> IoResult<Self>
