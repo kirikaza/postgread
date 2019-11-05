@@ -1,6 +1,7 @@
 pub mod body {
     pub mod authentication;
     pub mod parameter_status;
+    pub mod ready_for_query;
     pub mod startup;
     pub mod terminate;
     pub mod unknown;
@@ -12,6 +13,7 @@ mod test_util;
 
 use body::authentication::Authentication;
 use body::parameter_status::ParameterStatus;
+use body::ready_for_query::ReadyForQuery;
 use body::startup::Startup;
 use body::terminate::Terminate;
 use body::unknown::Unknown;
@@ -25,6 +27,7 @@ use ::std::mem::{size_of_val};
 pub enum BackendMessage {
     Authentication(Authentication),
     ParameterStatus(ParameterStatus),
+    ReadyForQuery(ReadyForQuery),
     Unknown(Unknown),
 }
 
@@ -91,7 +94,7 @@ impl BackendMessage {
     {
         read_body_by_type! {
             (stream, type_byte, full_len),
-            [Authentication, ParameterStatus]
+            [Authentication, ParameterStatus, ReadyForQuery]
         }
     }
 }

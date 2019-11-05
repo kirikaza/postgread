@@ -24,7 +24,7 @@ mod tests {
     fn simple() {
         let mut bytes: &[u8] = &[
             b'X',
-            0, 0, 0, 9, // len
+            0, 0, 0, 4, // len
         ];
         assert_eq!(
             ok_some(Terminate {}),
