@@ -2,6 +2,7 @@ pub mod body {
     pub mod authentication;
     pub mod backend_key_data;
     pub mod parameter_status;
+    pub mod query;
     pub mod ready_for_query;
     pub mod startup;
     pub mod terminate;
@@ -15,6 +16,7 @@ mod test_util;
 use body::authentication::Authentication;
 use body::backend_key_data::BackendKeyData;
 use body::parameter_status::ParameterStatus;
+use body::query::Query;
 use body::ready_for_query::ReadyForQuery;
 use body::startup::Startup;
 use body::terminate::Terminate;
@@ -36,6 +38,7 @@ pub enum BackendMessage {
 
 #[derive(Debug, PartialEq)]
 pub enum FrontendMessage {
+    Query(Query),
     Startup(Startup),
     Terminate(Terminate),
     Unknown(Unknown),
@@ -129,7 +132,7 @@ impl FrontendMessage {
     {
         read_body_by_type! {
             (stream, type_byte, full_len),
-            [Startup, Terminate]
+            [Query, Startup, Terminate]
         }
     }
 }
