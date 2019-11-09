@@ -4,6 +4,7 @@ pub mod body {
     pub mod parameter_status;
     pub mod query;
     pub mod ready_for_query;
+    pub mod row_description;
     pub mod startup;
     pub mod terminate;
     pub mod unknown;
@@ -18,6 +19,7 @@ use body::backend_key_data::BackendKeyData;
 use body::parameter_status::ParameterStatus;
 use body::query::Query;
 use body::ready_for_query::ReadyForQuery;
+use body::row_description::RowDescription;
 use body::startup::Startup;
 use body::terminate::Terminate;
 use body::unknown::Unknown;
@@ -33,6 +35,7 @@ pub enum BackendMessage {
     BackendKeyData(BackendKeyData),
     ParameterStatus(ParameterStatus),
     ReadyForQuery(ReadyForQuery),
+    RowDescription(RowDescription),
     Unknown(Unknown),
 }
 
@@ -100,7 +103,7 @@ impl BackendMessage {
     {
         read_body_by_type! {
             (stream, type_byte, full_len),
-            [Authentication, BackendKeyData, ParameterStatus, ReadyForQuery]
+            [Authentication, BackendKeyData, ParameterStatus, ReadyForQuery, RowDescription]
         }
     }
 }

@@ -15,7 +15,7 @@ impl Query {
         where R: AsyncBufReadExt + Unpin
     {
         let mut query = read_null_terminated(stream).await?;
-        query.pop();
+        query.pop().ok_or_else(|| error_other("query doesn't contain even 0-byte"))?;
         Ok(Self(query))
     }
 }
