@@ -65,9 +65,11 @@ impl StartupParam {
 }
 impl Debug for StartupParam {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "StartupParam {{ \"{}\": \"{}\" }}",
-               String::from_utf8_lossy(&self.name),
-               String::from_utf8_lossy(&self.value))
+        f.debug_struct("StartupParam")
+            .field(
+                &String::from_utf8_lossy(&self.name),
+                &String::from_utf8_lossy(&self.value))
+            .finish()
     }
 }
 

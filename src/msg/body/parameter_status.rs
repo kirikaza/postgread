@@ -25,9 +25,11 @@ impl ParameterStatus {
 
 impl Debug for ParameterStatus {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "ParameterStatus {{ \"{}\": \"{}\" }}",
-               String::from_utf8_lossy(&self.name),
-               String::from_utf8_lossy(&self.value))
+        f.debug_struct("ParameterStatus")
+            .field(
+                &String::from_utf8_lossy(&self.name),
+                &String::from_utf8_lossy(&self.value))
+            .finish()
     }
 }
 
