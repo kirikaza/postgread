@@ -22,7 +22,9 @@ impl Query {
 
 impl Debug for Query {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "Query(\"{}\")", String::from_utf8_lossy(&self.0))
+        f.debug_tuple("Query")
+            .field(&String::from_utf8_lossy(&self.0))
+            .finish()
     }
 }
 
