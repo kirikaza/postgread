@@ -84,7 +84,7 @@ mod tests {
     fn no_fields() {
         let mut bytes: &[u8] = &[
             b'T',
-            0, 0, 0, 5,  // len
+            0, 0, 0, 6,  // len
             0, 0,  // fields count
         ];
         assert_eq!(
@@ -99,7 +99,7 @@ mod tests {
             b'T',
             0, 0, 0, 53,  // len
             0, 2,  // fields count
-            // first field
+            // first field:
             b'F', b'i', b'r', b's', b't', 0,  // name
             0x10, 0x11, 0x12, 0x13,  // column oid
             0x14, 0x15,  // column attr num
@@ -107,7 +107,7 @@ mod tests {
             0x1A, 0x1B,  // type_size
             0x1C, 0x1D, 0x1E, 0x1F,  // type modifier
             0, 0,  //  format=text
-            // second field
+            // second field:
             b'S', b'e', b'c', b'o', b'n', b'd', 0,  // name
             0x2F, 0x2E, 0x2D, 0x2C,  // column oid
             0x2B, 0x2A,  // column attr num

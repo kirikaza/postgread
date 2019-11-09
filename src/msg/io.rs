@@ -32,6 +32,14 @@ where R: AsyncReadExt + Unpin
     Ok(u16::from_be_bytes(buf))
 }
 
+pub async fn read_vec<R>(stream: &mut R, len: usize) -> IoResult<Vec<u8>>
+where R: AsyncReadExt + Unpin
+{
+    let mut buf = vec![0u8; len];
+    stream.read_exact(buf.as_mut_slice()).await?;
+    Ok(buf)
+}
+
 pub async fn read_u32<R>(stream: &mut R) -> IoResult<u32>
 where R: AsyncReadExt + Unpin
 {

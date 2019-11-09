@@ -1,4 +1,5 @@
 #[macro_use] extern crate futures;
+extern crate hex;
 extern crate tokio;
 
 #[cfg(test)] extern crate bytes;

@@ -1,6 +1,7 @@
 pub mod body {
     pub mod authentication;
     pub mod backend_key_data;
+    pub mod data_row;
     pub mod parameter_status;
     pub mod query;
     pub mod ready_for_query;
@@ -16,6 +17,7 @@ mod test_util;
 
 use body::authentication::Authentication;
 use body::backend_key_data::BackendKeyData;
+use body::data_row::DataRow;
 use body::parameter_status::ParameterStatus;
 use body::query::Query;
 use body::ready_for_query::ReadyForQuery;
@@ -33,6 +35,7 @@ use ::std::mem::{size_of_val};
 pub enum BackendMessage {
     Authentication(Authentication),
     BackendKeyData(BackendKeyData),
+    DataRow(DataRow),
     ParameterStatus(ParameterStatus),
     ReadyForQuery(ReadyForQuery),
     RowDescription(RowDescription),
@@ -103,7 +106,14 @@ impl BackendMessage {
     {
         read_body_by_type! {
             (stream, type_byte, full_len),
-            [Authentication, BackendKeyData, ParameterStatus, ReadyForQuery, RowDescription]
+            [
+                Authentication,
+                BackendKeyData,
+                DataRow,
+                ParameterStatus,
+                ReadyForQuery,
+                RowDescription
+            ]
         }
     }
 }
