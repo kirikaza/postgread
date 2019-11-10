@@ -9,8 +9,10 @@ use futures::io::{AsyncRead, AsyncWrite, BufReader};
 use postgread::dup::DupReader;
 use postgread::msg::{BackendMessage, FrontendMessage};
 use postgread::tokio_compat::compat;
-use std::net::{IpAddr, SocketAddr};
 use std::io;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use structopt::StructOpt;
 use tokio::net::{TcpListener, TcpStream};
 
@@ -30,7 +32,7 @@ struct Config {
     target_port: u16,
 }
 
-fn convey_backend_messages<R, W>(from: R, to: W) -> io::Result<()>
+fn convey_backend_messages<R, W>(id: usize, from: R, to: W) -> io::Result<()>
 where
     R: 'static + AsyncRead + Send + Unpin,
     W: 'static + AsyncWrite + Send + Unpin,
@@ -40,14 +42,14 @@ where
         loop {
             match BackendMessage::read(&mut dup).await {
                 Ok(None) => {
-                    println!("server finished");
+                    println!("[{}] server finished", id);
                     break;
                 },
                 Ok(Some(msg)) => {
-                    println!("server sent {:?}", msg);
+                    println!("[{}] server sent {:?}", id, msg);
                 },
                 Err(err) => {
-                    println!("server behaved unexpectedly: {:?}", err);
+                    println!("[{}] server behaved unexpectedly: {:?}", id, err);
                     break;
                 },
             }
@@ -56,7 +58,7 @@ where
     Ok(())
 }
 
-fn convey_frontend_messages<R, W>(from: R, to: W) -> io::Result<()>
+fn convey_frontend_messages<R, W>(id: usize, from: R, to: W) -> io::Result<()>
     where
         R: 'static + AsyncRead + Send + Unpin,
         W: 'static + AsyncWrite + Send + Unpin,
@@ -67,14 +69,14 @@ fn convey_frontend_messages<R, W>(from: R, to: W) -> io::Result<()>
         loop {
             match FrontendMessage::read(&mut dup, first).await {
                 Ok(None) => {
-                    println!("client finished");
+                    println!("[{}] client finished", id);
                     break;
                 },
                 Ok(Some(msg)) => {
-                    println!("client sent {:?}", msg);
+                    println!("[{}] client sent {:?}", id, msg);
                 },
                 Err(err) => {
-                    println!("client behaved unexpectedly: {:?}", err);
+                    println!("[{}] client behaved unexpectedly: {:?}", id, err);
                     break;
                 },
             }
@@ -84,24 +86,24 @@ fn convey_frontend_messages<R, W>(from: R, to: W) -> io::Result<()>
     Ok(())
 }
 
-async fn handle_client(config: Config, client: TcpStream) -> io::Result<()> {
-    println!("accepted client {:?}", client.peer_addr().unwrap());
+async fn handle_client(config: Config, id: usize, client: TcpStream) -> io::Result<()> {
+    println!("[{}] accepted client {:?}", id, client.peer_addr().unwrap());
     let target_ip = config.target_host.parse()
         .map_err(|err| io::Error::new(io::ErrorKind::NotConnected, err))?;
     let server_endpoint = SocketAddr::new(target_ip, config.target_port);
     tokio::spawn(async move {
         match TcpStream::connect(&server_endpoint).await {
             Ok(server) => {
-                println!("connected to target server {}", server.local_addr().unwrap());
+                println!("[{}] connected to target server {}", id, server.local_addr().unwrap());
                 match (client.split(), server.split()) {
                     ((from_client, to_client), (from_server, to_server)) => {
-                        convey_frontend_messages(compat(from_client), compat(to_server)).unwrap();
-                        convey_backend_messages(compat(from_server), compat(to_client)).unwrap();
+                        convey_frontend_messages(id, compat(from_client), compat(to_server)).unwrap();
+                        convey_backend_messages(id, compat(from_server), compat(to_client)).unwrap();
                     }
                 }
             },
             Err(err) => {
-                println!("could not connect to target host: {:?}", err);
+                println!("[{}] could not connect to target host: {:?}", id, err);
             },
         }
     });
@@ -113,12 +115,15 @@ async fn main() -> io::Result<()> {
     let config = Config::from_args();
     let listen = SocketAddr::new(config.listen_addr, config.listen_port);
     let mut listener = TcpListener::bind(&listen).unwrap();
+    let next_client_id = Arc::new(AtomicUsize::new(1));
     loop {
         let (stream, _) = listener.accept().await?;
         let config = config.clone();
+        let next_client_id = next_client_id.clone();
         tokio::spawn(async move {
-            handle_client(config, stream).await.unwrap_or_else(|err| {
-                println!("could not handle client: {:?}", err)
+            let client_id = next_client_id.fetch_add(1, Ordering::SeqCst);
+            handle_client(config, client_id, stream).await.unwrap_or_else(|err| {
+                println!("[{}] could not handle client: {:?}", client_id, err)
             });
         });
     }
