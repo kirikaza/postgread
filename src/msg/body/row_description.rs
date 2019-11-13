@@ -59,7 +59,7 @@ impl Field {
     where R: AsyncBufReadExt + Unpin
     {
         let mut name = read_null_terminated(stream).await?;
-        name.pop().ok_or_else(|| error_other("query doesn't contain even 0-byte"))?;
+        name.pop().ok_or_else(|| error_other("RowDescription: field name doesn't contain even 0-byte"))?;
         let column_oid = read_u32(stream).await?;
         let column_attr_num = read_u16(stream).await?;
         let type_oid = read_u32(stream).await?;
@@ -68,7 +68,7 @@ impl Field {
         let format = match read_u16(stream).await? {
             0 => Format::Text,
             1 => Format::Binary,
-            x => return Err(error_other(&format!("incorrect format {}", x)))
+            x => return Err(error_other(&format!("RowDescription: incorrect format {}", x)))
         };
         Ok(Self { name, column_oid, column_attr_num, type_oid, type_size, type_modifier, format })
     }
@@ -119,7 +119,7 @@ mod tests {
         assert_eq!(
             ok_some(RowDescription { fields: vec![
                 Field {
-                    name: Vec::from(&b"First"[..]),
+                    name: Vec::from("First"),
                     column_oid: 0x10111213,
                     column_attr_num: 0x1415,
                     type_oid: 0x16171819,
@@ -128,7 +128,7 @@ mod tests {
                     format: Text,
                 },
                 Field {
-                    name: Vec::from(&b"Second"[..]),
+                    name: Vec::from("Second"),
                     column_oid: 0x2F2E2D2C,
                     column_attr_num: 0x2B2A,
                     type_oid: 0x29282726,

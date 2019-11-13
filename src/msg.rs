@@ -3,6 +3,7 @@ pub mod body {
     pub mod backend_key_data;
     pub mod command_complete;
     pub mod data_row;
+    pub mod error_response;
     pub mod parameter_status;
     pub mod query;
     pub mod ready_for_query;
@@ -20,6 +21,7 @@ use body::authentication::Authentication;
 use body::backend_key_data::BackendKeyData;
 use body::command_complete::CommandComplete;
 use body::data_row::DataRow;
+use body::error_response::ErrorResponse;
 use body::parameter_status::ParameterStatus;
 use body::query::Query;
 use body::ready_for_query::ReadyForQuery;
@@ -39,6 +41,7 @@ pub enum BackendMessage {
     BackendKeyData(BackendKeyData),
     CommandComplete(CommandComplete),
     DataRow(DataRow),
+    ErrorResponse(ErrorResponse),
     ParameterStatus(ParameterStatus),
     ReadyForQuery(ReadyForQuery),
     RowDescription(RowDescription),
@@ -114,6 +117,7 @@ impl BackendMessage {
                 BackendKeyData,
                 CommandComplete,
                 DataRow,
+                ErrorResponse,
                 ParameterStatus,
                 ReadyForQuery,
                 RowDescription

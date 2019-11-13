@@ -49,7 +49,7 @@ impl Column {
                 let value = read_vec(stream, value_len as usize).await?;
                 Ok(Self::Value(value))
             },
-            x => Err(error_other(&format!("incorrect length of column value {}", x))),
+            x => Err(error_other(&format!("DataRow: incorrect length of column value {}", x))),
         }
     }
 }
