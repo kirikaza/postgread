@@ -15,7 +15,7 @@ impl Query {
         where R: AsyncBufReadExt + Unpin
     {
         let mut query = read_null_terminated(stream).await?;
-        query.pop().ok_or_else(|| error_other("query doesn't contain even 0-byte"))?;
+        query.pop().ok_or_else(|| error_other("Query: query doesn't contain even 0-byte"))?;
         Ok(Self(query))
     }
 }
@@ -44,7 +44,7 @@ mod tests {
         let mut bytes = &bytes[..];
         assert_eq!(
             ok_some(Query (
-                Vec::from(&b"select 1;"[..]),
+                Vec::from("select 1;"),
             )),
             force_read_frontend(&mut bytes, false),
         );
