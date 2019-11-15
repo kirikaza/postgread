@@ -34,7 +34,10 @@ impl Authentication {
             7 => Ok(Self::GSS),
             8 => Self::read_gss_continue(stream, left_len).await,
             9 => Ok(Self::SSPI),
-            _ => Ok(Self::Unknown(Unknown::read(stream, left_len, format!("auth type {}", auth_type)).await?)),
+            _ => {
+                let msg = format!("auth type {}", auth_type);
+                Ok(Self::Unknown(Unknown::read(stream, left_len, msg).await?))
+            },
         }
     }
 
