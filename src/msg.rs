@@ -1,3 +1,5 @@
+#![allow(clippy::large_enum_variant)]
+
 pub mod body {
     pub mod authentication;
     pub mod backend_key_data;
