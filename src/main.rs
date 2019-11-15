@@ -1,20 +1,20 @@
-#![feature(async_closure)]
-
+extern crate async_std;
 extern crate futures;
 extern crate postgread;
 extern crate structopt;
-extern crate tokio;
 
-use futures::io::{AsyncRead, AsyncWrite, BufReader};
+use async_std::net::{TcpListener, TcpStream};
+use async_std::stream::StreamExt;
+use async_std::task;
+use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader};
 use postgread::dup::DupReader;
 use postgread::msg::{BackendMessage, FrontendMessage};
-use postgread::tokio_compat::compat;
+use postgread::async_std_compat::compat;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use structopt::StructOpt;
-use tokio::net::{TcpListener, TcpStream};
 
 #[derive(Clone, StructOpt)]
 #[structopt(name="postgread")]
@@ -37,7 +37,7 @@ where
     R: 'static + AsyncRead + Send + Unpin,
     W: 'static + AsyncWrite + Send + Unpin,
 {
-    tokio::spawn(async move {
+    task::spawn(async move {
         let mut dup = BufReader::new(DupReader::new(from, to));
         loop {
             match BackendMessage::read(&mut dup).await {
@@ -63,7 +63,7 @@ fn convey_frontend_messages<R, W>(id: usize, from: R, to: W) -> io::Result<()>
         R: 'static + AsyncRead + Send + Unpin,
         W: 'static + AsyncWrite + Send + Unpin,
 {
-    tokio::spawn(async move {
+    task::spawn(async move {
         let mut first = true;
         let mut dup = BufReader::new(DupReader::new(from, to));
         loop {
@@ -91,14 +91,14 @@ async fn handle_client(config: Config, id: usize, client: TcpStream) -> io::Resu
     let target_ip = config.target_host.parse()
         .map_err(|err| io::Error::new(io::ErrorKind::NotConnected, err))?;
     let server_endpoint = SocketAddr::new(target_ip, config.target_port);
-    tokio::spawn(async move {
+    task::spawn(async move {
         match TcpStream::connect(&server_endpoint).await {
             Ok(server) => {
                 println!("[{}] connected to target server {}", id, server.local_addr().unwrap());
-                match (client.split(), server.split()) {
+                match (compat(client).split(), compat(server).split()) {
                     ((from_client, to_client), (from_server, to_server)) => {
-                        convey_frontend_messages(id, compat(from_client), compat(to_server)).unwrap();
-                        convey_backend_messages(id, compat(from_server), compat(to_client)).unwrap();
+                        convey_frontend_messages(id, from_client, to_server).unwrap();
+                        convey_backend_messages(id, from_server, to_client).unwrap();
                     }
                 }
             },
@@ -110,21 +110,23 @@ async fn handle_client(config: Config, id: usize, client: TcpStream) -> io::Resu
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
+fn main() -> io::Result<()> {
     let config = Config::from_args();
     let listen = SocketAddr::new(config.listen_addr, config.listen_port);
-    let mut listener = TcpListener::bind(&listen).unwrap();
-    let next_client_id = Arc::new(AtomicUsize::new(1));
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let config = config.clone();
-        let next_client_id = next_client_id.clone();
-        tokio::spawn(async move {
-            let client_id = next_client_id.fetch_add(1, Ordering::SeqCst);
-            handle_client(config, client_id, stream).await.unwrap_or_else(|err| {
-                println!("[{}] could not handle client: {:?}", client_id, err)
+    task::block_on(async move {
+        let listener = TcpListener::bind(&listen).await?;
+        let next_client_id = Arc::new(AtomicUsize::new(1));
+        while let Some(stream) = listener.incoming().next().await {
+            let stream = stream?;
+            let config = config.clone();
+            let next_client_id = next_client_id.clone();
+            task::spawn(async move {
+                let client_id = next_client_id.fetch_add(1, Ordering::SeqCst);
+                handle_client(config, client_id, stream).await.unwrap_or_else(|err| {
+                    println!("[{}] could not handle client: {:?}", client_id, err)
+                });
             });
-        });
-    }
+        }
+        Ok(())
+    })
 }

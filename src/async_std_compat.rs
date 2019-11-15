@@ -1,8 +1,8 @@
+use async_std::io::{Read as AsyncStdRead, Write as AsyncStdWrite};
 use futures::io::{AsyncRead as FuturesAsyncRead, AsyncWrite as FuturesAsyncWrite};
 use futures::task::{Context, Poll};
 use std::io;
 use std::pin::Pin;
-use tokio::io::{AsyncRead as TokioAsyncRead, AsyncWrite as TokioAsyncWrite};
 
 pub fn compat<T>(x: T) -> Compat<T> {
     Compat(x)
@@ -19,7 +19,7 @@ impl<T> Compat<T> {
     }
 }
 
-impl<T: TokioAsyncRead> FuturesAsyncRead for Compat<T> {
+impl<T: AsyncStdRead> FuturesAsyncRead for Compat<T> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context,
@@ -29,7 +29,7 @@ impl<T: TokioAsyncRead> FuturesAsyncRead for Compat<T> {
     }
 }
 
-impl<T: TokioAsyncWrite> FuturesAsyncWrite for Compat<T> {
+impl<T: AsyncStdWrite> FuturesAsyncWrite for Compat<T> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context,
@@ -43,6 +43,6 @@ impl<T: TokioAsyncWrite> FuturesAsyncWrite for Compat<T> {
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        T::poll_shutdown(self.pin_inner(), cx)
+        T::poll_close(self.pin_inner(), cx)
     }
 }
