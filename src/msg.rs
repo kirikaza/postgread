@@ -1,36 +1,12 @@
 #![allow(clippy::large_enum_variant)]
 
-pub mod body {
-    pub mod authentication;
-    pub mod backend_key_data;
-    pub mod command_complete;
-    pub mod data_row;
-    pub mod error_response;
-    pub mod parameter_status;
-    pub mod query;
-    pub mod ready_for_query;
-    pub mod row_description;
-    pub mod initial;
-    pub mod terminate;
-    pub mod unknown;
-}
+pub mod body;
 mod io;
 
 #[cfg(test)]
 mod test_util;
 
-use body::authentication::Authentication;
-use body::backend_key_data::BackendKeyData;
-use body::command_complete::CommandComplete;
-use body::data_row::DataRow;
-use body::error_response::ErrorResponse;
-use body::parameter_status::ParameterStatus;
-use body::query::Query;
-use body::ready_for_query::ReadyForQuery;
-use body::row_description::RowDescription;
-use body::initial::Initial;
-use body::terminate::Terminate;
-use body::unknown::Unknown;
+use body::*;
 use io::*;
 
 use ::futures::io::{AsyncBufReadExt, Result as IoResult};
