@@ -10,7 +10,7 @@ pub mod body {
     pub mod query;
     pub mod ready_for_query;
     pub mod row_description;
-    pub mod startup;
+    pub mod initial;
     pub mod terminate;
     pub mod unknown;
 }
@@ -28,7 +28,7 @@ use body::parameter_status::ParameterStatus;
 use body::query::Query;
 use body::ready_for_query::ReadyForQuery;
 use body::row_description::RowDescription;
-use body::startup::Startup;
+use body::initial::Initial;
 use body::terminate::Terminate;
 use body::unknown::Unknown;
 use io::*;
@@ -53,7 +53,7 @@ pub enum BackendMessage {
 #[derive(Debug, PartialEq)]
 pub enum FrontendMessage {
     Query(Query),
-    Startup(Startup),
+    Initial(Initial),
     Terminate(Terminate),
     Unknown(Unknown),
 }
@@ -155,7 +155,7 @@ impl FrontendMessage {
     {
         read_body_by_type! {
             (stream, type_byte, full_len),
-            [Query, Startup, Terminate]
+            [Query, Initial, Terminate]
         }
     }
 }
