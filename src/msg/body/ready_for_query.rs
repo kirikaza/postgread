@@ -1,4 +1,4 @@
-use super::super::io::*;
+use crate::msg::util::io::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::io::Result as IoResult;
 
@@ -34,7 +34,7 @@ impl ReadyForQuery {
 mod tests {
     use super::{ReadyForQuery, Status::*};
     use crate::msg::BackendMessage;
-    use crate::msg::test_util::*;
+    use crate::msg::util::test::*;
 
     #[test]
     fn idle() {

@@ -1,4 +1,4 @@
-use super::super::io::*;
+use crate::msg::util::io::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
 use ::std::io::Result as IoResult;
@@ -31,7 +31,7 @@ impl CommandComplete {
 mod tests {
     use super::{CommandComplete};
     use crate::msg::BackendMessage;
-    use crate::msg::test_util::*;
+    use crate::msg::util::test::*;
 
     #[test]
     fn simple() {

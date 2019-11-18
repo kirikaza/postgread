@@ -1,4 +1,4 @@
-use super::{BackendMessage, FrontendMessage};
+use crate::msg::{BackendMessage, FrontendMessage};
 
 use ::futures::task::Poll::*;
 use ::futures_test::task::noop_context;

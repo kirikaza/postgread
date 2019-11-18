@@ -1,4 +1,4 @@
-use super::super::io::*;
+use crate::msg::util::io::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::io::Result as IoResult;
 
@@ -24,7 +24,7 @@ impl BackendKeyData {
 mod tests {
     use super::{BackendKeyData};
     use crate::msg::BackendMessage;
-    use crate::msg::test_util::*;
+    use crate::msg::util::test::*;
 
     #[test]
     fn simple() {

@@ -1,4 +1,4 @@
-use super::super::io::*;
+use crate::msg::util::io::*;
 use ::futures::io::AsyncBufReadExt;
 use ::hex;
 use ::std::fmt::{self, Debug, Formatter};
@@ -58,7 +58,7 @@ impl Column {
 mod tests {
     use super::{DataRow, Column::*};
     use crate::msg::BackendMessage;
-    use crate::msg::test_util::*;
+    use crate::msg::util::test::*;
 
     #[test]
     fn no_columns() {

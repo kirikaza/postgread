@@ -1,4 +1,4 @@
-use super::super::io::*;
+use crate::msg::util::io::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
 use ::std::io::Result as IoResult;
@@ -78,7 +78,7 @@ impl Field {
 mod tests {
     use super::{RowDescription, Field, Format::*};
     use crate::msg::BackendMessage;
-    use crate::msg::test_util::*;
+    use crate::msg::util::test::*;
 
     #[test]
     fn no_fields() {
