@@ -1,4 +1,4 @@
-use super::super::io::*;
+use crate::msg::util::io::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
 use ::std::io::Result as IoResult;
@@ -100,7 +100,7 @@ impl Debug for StartupParam {
 mod tests {
     use super::{Cancel, Initial, Startup, StartupParam, Version};
     use crate::msg::FrontendMessage;
-    use crate::msg::test_util::*;
+    use crate::msg::util::test::*;
 
     #[test]
     fn cancel() {

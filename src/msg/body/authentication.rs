@@ -1,4 +1,4 @@
-use super::super::io::*;
+use crate::msg::util::io::*;
 use super::unknown::Unknown;
 use ::futures::io::{AsyncBufReadExt, AsyncReadExt};
 use ::std::io::Result as IoResult;
@@ -62,7 +62,7 @@ impl Authentication {
 mod tests {
     use super::Authentication::{self, *};
     use crate::msg::BackendMessage;
-    use crate::msg::test_util::*;
+    use crate::msg::util::test::*;
 
     #[test]
     fn ok() {

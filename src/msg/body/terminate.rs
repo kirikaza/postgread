@@ -18,7 +18,7 @@ impl Terminate {
 mod tests {
     use super::Terminate;
     use crate::msg::FrontendMessage;
-    use crate::msg::test_util::*;
+    use crate::msg::util::test::*;
 
     #[test]
     fn simple() {

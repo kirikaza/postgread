@@ -1,13 +1,10 @@
 #![allow(clippy::large_enum_variant)]
 
 pub mod body;
-mod io;
-
-#[cfg(test)]
-mod test_util;
+mod util;
 
 use body::*;
-use io::*;
+use util::io::*;
 
 use ::futures::io::{AsyncBufReadExt, Result as IoResult};
 use ::std::fmt::Debug;
