@@ -1,4 +1,5 @@
 use crate::msg::util::io::*;
+use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
 use ::std::io::Result as IoResult;
@@ -9,11 +10,15 @@ pub struct Query (
 );
 
 impl Query {
-    pub const TYPE_BYTE: Option<u8> = Some(b'Q');
+    pub const TYPE_BYTE: u8 = b'Q';
 
-    pub async fn read<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-        where R: AsyncBufReadExt + Unpin
-    {
+    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
+    where R: AsyncBufReadExt + Unpin {
+        read_msg_with_len(stream, Self::read_body).await
+    }
+
+    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: AsyncBufReadExt + Unpin {
         let mut query = read_null_terminated(stream).await?;
         query.pop().ok_or_else(|| error_other("Query: query doesn't contain even 0-byte"))?;
         Ok(Self(query))

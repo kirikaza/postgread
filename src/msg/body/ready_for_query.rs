@@ -1,4 +1,5 @@
 use crate::msg::util::io::*;
+use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::io::Result as IoResult;
 
@@ -15,11 +16,15 @@ pub enum Status {
 }
 
 impl ReadyForQuery {
-    pub const TYPE_BYTE: Option<u8> = Some(b'Z');
+    pub const TYPE_BYTE: u8 = b'Z';
 
-    pub async fn read<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin
-    {
+    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
+    where R: AsyncBufReadExt + Unpin {
+        read_msg_with_len(stream, Self::read_body).await
+    }
+
+    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: AsyncBufReadExt + Unpin {
         let status = match read_u8(stream).await? {
             b'I' => Status::Idle,
             b'T' => Status::Transaction,

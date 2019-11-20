@@ -1,4 +1,5 @@
 use crate::msg::util::io::*;
+use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
 use ::std::io::Result as IoResult;
@@ -109,11 +110,15 @@ macro_rules! read_struct_of_opt_fields {
 }
 
 impl ErrorResponse {
-    pub const TYPE_BYTE: Option<u8> = Some(b'E');
+    pub const TYPE_BYTE: u8 = b'E';
 
-    pub async fn read<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin
-    {
+    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
+    where R: AsyncBufReadExt + Unpin {
+        read_msg_with_len(stream, Self::read_body).await
+    }
+
+    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: AsyncBufReadExt + Unpin {
         let mut body = Self { ..Default::default() };
         read_struct_of_opt_fields!(stream, body,
             b'S' => localized_severity,
