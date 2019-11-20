@@ -1,3 +1,4 @@
+use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::io::Result as IoResult;
 
@@ -5,11 +6,14 @@ use ::std::io::Result as IoResult;
 pub struct Terminate {}
 
 impl Terminate {
-    pub const TYPE_BYTE: Option<u8> = Some(b'X');
+    pub const TYPE_BYTE: u8 = b'X';
 
-    pub async fn read<R>(_stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin
-    {
+    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
+    where R: AsyncBufReadExt + Unpin {
+        read_msg_with_len(stream, Self::read_body).await
+    }
+
+    pub async fn read_body<R>(_stream: &mut R, _body_len: u32) -> IoResult<Self> {
         Ok(Self {})
     }
 }

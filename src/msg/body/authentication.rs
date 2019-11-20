@@ -1,4 +1,5 @@
 use crate::msg::util::io::*;
+use crate::msg::util::read::*;
 use super::unknown::Unknown;
 use ::futures::io::{AsyncBufReadExt, AsyncReadExt};
 use ::std::io::Result as IoResult;
@@ -18,11 +19,15 @@ pub enum Authentication {
 }
 
 impl Authentication {
-    pub const TYPE_BYTE: Option<u8> = Some(b'R');
+    pub const TYPE_BYTE: u8 = b'R';
 
-    pub async fn read<R>(stream: &mut R, body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin
-    {
+    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
+    where R: AsyncBufReadExt + Unpin {
+        read_msg_with_len(stream, Self::read_body).await
+    }
+
+    pub async fn read_body<R>(stream: &mut R, body_len: u32) -> IoResult<Self>
+    where R: AsyncBufReadExt + Unpin {
         let auth_type = read_u32(stream).await?;
         let left_len = body_len - size_of_val(&auth_type) as u32;
         match auth_type {
@@ -35,8 +40,9 @@ impl Authentication {
             8 => Self::read_gss_continue(stream, left_len).await,
             9 => Ok(Self::SSPI),
             _ => {
-                let msg = format!("auth type {}", auth_type);
-                Ok(Self::Unknown(Unknown::read(stream, left_len, msg).await?))
+                read_and_drop(stream, left_len).await?;
+                let note = format!("auth type {}", auth_type);
+                Ok(Self::Unknown(Unknown { note }))
             },
         }
     }

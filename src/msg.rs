@@ -8,7 +8,6 @@ use util::io::*;
 
 use ::futures::io::{AsyncBufReadExt, Result as IoResult};
 use ::std::fmt::Debug;
-use ::std::mem::{size_of_val};
 
 #[derive(Debug, PartialEq)]
 pub enum BackendMessage {
@@ -31,104 +30,47 @@ pub enum FrontendMessage {
     Unknown(Unknown),
 }
 
-macro_rules! read_body_and_wrap {
-    (
-        $body_type_name:ident,
-        $($arg:expr),*
-    ) => {
-        {
-            let body = $body_type_name::read($($arg,)*).await?;
-            Ok(Self::$body_type_name(body))
-        }
-    };
-}
-
-macro_rules! read_body_by_type {
-    (
-        ($stream:ident, $type_byte:ident, $full_len:ident),
-        [$($body_type_name: ident),*]
-    ) => {
-        {
-            let body_len = $full_len - size_of_val(&$full_len) as u32;
-            // TODO: protect from reading extra bytes like `stream.take(u64::from(body_len))`
-            match $type_byte {
-                $(
-                    $body_type_name::TYPE_BYTE =>
-                        read_body_and_wrap!($body_type_name, $stream, body_len),
-                )*
-                _ => {
-                    let type_sym = $type_byte.map(|byte| byte as char);
-                    let msg = format!("message type {:?}", type_sym);
-                    read_body_and_wrap!(Unknown, $stream, body_len, msg)
-                },
-
-            }
-        }
-    };
-}
-
 impl BackendMessage {
     pub async fn read<R>(stream: &mut R) -> IoResult<Option<Self>>
-    where R: AsyncBufReadExt + Unpin
-    {
-        Ok(
-            match accept_eof(read_u8(stream).await)? {
-                Some(type_byte) => {
-                    let full_len = read_u32(stream).await?;
-                    Some(Self::read_body(stream, Some(type_byte), full_len).await?)
-                }
-                None => None,
+    where R: AsyncBufReadExt + Unpin {
+        match accept_eof(read_u8(stream).await)? {
+            Some(type_byte) => {
+                let msg = match type_byte {
+                    Authentication::TYPE_BYTE => Self::Authentication(Authentication::read(stream).await?),
+                    BackendKeyData::TYPE_BYTE => Self::BackendKeyData(BackendKeyData::read(stream).await?),
+                    CommandComplete::TYPE_BYTE => Self::CommandComplete(CommandComplete::read(stream).await?),
+                    DataRow::TYPE_BYTE => Self::DataRow(DataRow::read(stream).await?),
+                    ErrorResponse::TYPE_BYTE => Self::ErrorResponse(ErrorResponse::read(stream).await?),
+                    ParameterStatus::TYPE_BYTE => Self::ParameterStatus(ParameterStatus::read(stream).await?),
+                    ReadyForQuery::TYPE_BYTE => Self::ReadyForQuery(ReadyForQuery::read(stream).await?),
+                    RowDescription::TYPE_BYTE => Self::RowDescription(RowDescription::read(stream).await?),
+                    _ => Self::Unknown(Unknown::read(stream, type_byte).await?),
+                };
+                Ok(Some(msg))
             }
-        )
-    }
-
-    async fn read_body<R>(stream: &mut R, type_byte: Option<u8>, full_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin
-    {
-        read_body_by_type! {
-            (stream, type_byte, full_len),
-            [
-                Authentication,
-                BackendKeyData,
-                CommandComplete,
-                DataRow,
-                ErrorResponse,
-                ParameterStatus,
-                ReadyForQuery,
-                RowDescription
-            ]
+            None => Ok(None),
         }
     }
 }
 
 impl FrontendMessage {
     pub async fn read<R>(stream: &mut R, is_first_msg: bool) -> IoResult<Option<Self>>
-    where R: AsyncBufReadExt + Unpin
-    {
-        Ok(
-            if is_first_msg {
-                match accept_eof(read_u32(stream).await)? {
-                    Some(full_len) => Some(Self::read_body(stream, None, full_len).await?),
-                    None => None,
+    where R: AsyncBufReadExt + Unpin {
+        if is_first_msg {
+            let msg = Initial::read(stream).await?;
+            Ok(Option::map(msg, Self::Initial))
+        } else {
+            match accept_eof(read_u8(stream).await)? {
+                Some(type_byte) => {
+                    let msg = match type_byte {
+                        Query::TYPE_BYTE => Self::Query(Query::read(stream).await?),
+                        Terminate::TYPE_BYTE => Self::Terminate(Terminate::read(stream).await?),
+                        _ => Self::Unknown(Unknown::read(stream, type_byte).await?),
+                    };
+                    Ok(Some(msg))
                 }
-            } else {
-                match accept_eof(read_u8(stream).await)? {
-                    Some(type_byte) => {
-                        let full_len = read_u32(stream).await?;
-                        Some(Self::read_body(stream, Some(type_byte), full_len).await?)
-                    }
-                    None => None,
-                }
+                None => Ok(None),
             }
-        )
-    }
-
-    async fn read_body<R>(stream: &mut R, type_byte: Option<u8>, full_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin
-    {
-        read_body_by_type! {
-            (stream, type_byte, full_len),
-            [Query, Initial, Terminate]
         }
     }
 }
