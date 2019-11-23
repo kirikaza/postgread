@@ -12,7 +12,7 @@ pub fn convey<BC, FC>(
     server: TcpStream,
     backend_callback: BC,
     frontend_callback: FC,
-) -> ()
+)
     where
         BC: 'static + Send + Fn(&IoResult<Option<BackendMessage>>) -> (),
         FC: 'static + Send + Fn(&IoResult<Option<FrontendMessage>>) -> (),
