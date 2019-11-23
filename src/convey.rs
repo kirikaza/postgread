@@ -7,16 +7,16 @@ use ::async_std::task;
 use ::futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader};
 use ::std::io::Result as IoResult;
 
-pub fn convey<BC, FC>(
-    client: TcpStream,
-    server: TcpStream,
-    backend_callback: BC,
+pub fn convey<FC, BC>(
+    frontend: TcpStream,
+    backend: TcpStream,
     frontend_callback: FC,
+    backend_callback: BC,
 ) where
-    BC: 'static + Send + Fn(&IoResult<Option<BackendMessage>>) -> (),
     FC: 'static + Send + Fn(&IoResult<Option<FrontendMessage>>) -> (),
+    BC: 'static + Send + Fn(&IoResult<Option<BackendMessage>>) -> (),
 {
-    match (compat(client).split(), compat(server).split()) {
+    match (compat(frontend).split(), compat(backend).split()) {
         ((from_client, to_client), (from_server, to_server)) => {
             convey_frontend_messages(from_client, to_server, frontend_callback).unwrap();
             convey_backend_messages(from_server, to_client, backend_callback).unwrap();

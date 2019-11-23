@@ -62,8 +62,8 @@ async fn handle_client(config: Config, id: usize, client: TcpStream) -> io::Resu
             Ok(server) => {
                 println!("[{}] connected to target server {}", id, server.local_addr().unwrap());
                 convey(client, server,
-                    move |msg| dump_backend_msg(id, msg),
                     move |msg| dump_frontend_msg(id, msg),
+                    move |msg| dump_backend_msg(id, msg),
                 )
             },
             Err(err) => {
