@@ -12,10 +12,9 @@ pub fn convey<BC, FC>(
     server: TcpStream,
     backend_callback: BC,
     frontend_callback: FC,
-)
-    where
-        BC: 'static + Send + Fn(&IoResult<Option<BackendMessage>>) -> (),
-        FC: 'static + Send + Fn(&IoResult<Option<FrontendMessage>>) -> (),
+) where
+    BC: 'static + Send + Fn(&IoResult<Option<BackendMessage>>) -> (),
+    FC: 'static + Send + Fn(&IoResult<Option<FrontendMessage>>) -> (),
 {
     match (compat(client).split(), compat(server).split()) {
         ((from_client, to_client), (from_server, to_server)) => {
@@ -30,10 +29,10 @@ fn convey_backend_messages<R, W, F>(
     to: W,
     callback: F,
 ) -> IoResult<()>
-    where
-        R: 'static + AsyncRead + Send + Unpin,
-        W: 'static + AsyncWrite + Send + Unpin,
-        F: 'static + Send + Fn(&IoResult<Option<BackendMessage>>) -> (),
+where
+    R: 'static + AsyncRead + Send + Unpin,
+    W: 'static + AsyncWrite + Send + Unpin,
+    F: 'static + Send + Fn(&IoResult<Option<BackendMessage>>) -> (),
 {
     task::spawn(async move {
         let mut dup = BufReader::new(DupReader::new(from, to));
@@ -55,10 +54,10 @@ fn convey_frontend_messages<R, W, F>(
     to: W,
     callback: F,
 ) -> IoResult<()>
-    where
-        R: 'static + AsyncRead + Send + Unpin,
-        W: 'static + AsyncWrite + Send + Unpin,
-        F: 'static + Send + Fn(&IoResult<Option<FrontendMessage>>) -> (),
+where
+    R: 'static + AsyncRead + Send + Unpin,
+    W: 'static + AsyncWrite + Send + Unpin,
+    F: 'static + Send + Fn(&IoResult<Option<FrontendMessage>>) -> (),
 {
     task::spawn(async move {
         let mut first = true;
