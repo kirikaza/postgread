@@ -1,9 +1,9 @@
 use crate::msg::util::io::*;
 use crate::msg::util::read::*;
-use ::futures::io::AsyncBufReadExt;
+use ::futures::io::AsyncReadExt;
 use ::hex;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::Result as IoResult;
+use ::std::io::{Read, Result as IoResult};
 
 #[derive(Debug, PartialEq)]
 pub struct DataRow {
@@ -29,29 +29,29 @@ impl DataRow {
     pub const TYPE_BYTE: u8 = b'D';
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
+    where R: AsyncReadExt + Unpin {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
-        let count = read_u16(stream).await?;
+    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: Read {
+        let count = read_u16(stream)?;
         let mut columns = Vec::with_capacity(count as usize);
         for _ in 0..count {
-            columns.push(Column::read(stream).await?)
+            columns.push(Column::read(stream)?)
         }
         Ok(Self { columns })
     }
 }
 
 impl Column {
-    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin
+    pub fn read<R>(stream: &mut R) -> IoResult<Self>
+    where R: Read
     {
-        match read_u32(stream).await? as i32 {
+        match read_u32(stream)? as i32 {
             -1 => Ok(Self::Null),
             value_len if value_len >= 0 => {
-                let value = read_vec(stream, value_len as usize).await?;
+                let value = read_vec(stream, value_len as usize)?;
                 Ok(Self::Value(value))
             },
             x => Err(error_other(&format!("DataRow: incorrect length of column value {}", x))),
@@ -82,7 +82,7 @@ mod tests {
     fn many_columns() {
         let mut bytes: &[u8] = &[
             b'D',
-            0, 0, 0, 53,  // len
+            0, 0, 0, 21,  // len
             0, 3,  // columns count
             // first column:
             0xFF, 0xFF, 0xFF, 0xFF,  //  value len=-1

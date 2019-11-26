@@ -1,8 +1,8 @@
 use crate::msg::util::io::*;
 use crate::msg::util::read::*;
-use ::futures::io::AsyncBufReadExt;
+use ::futures::io::AsyncReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::Result as IoResult;
+use ::std::io::{BufRead, Read, Result as IoResult};
 
 #[derive(Debug, PartialEq)]
 pub enum Initial {
@@ -25,22 +25,22 @@ pub struct Startup {
 
 impl Initial {
     pub async fn read<R>(stream: &mut R) -> IoResult<Option<Self>>
-    where R: AsyncBufReadExt + Unpin {
+    where R: AsyncReadExt + Unpin {
         read_msg_with_len_unless_eof(stream, Self::read_body).await
     }
 
-    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
-        match Version::read(stream).await? {
+    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: BufRead {
+        match Version::read(stream)? {
             Version { major: 1234, minor: 5678 } => {
-                let process_id = read_u32(stream).await?;
-                let secret_key = read_u32(stream).await?;
+                let process_id = read_u32(stream)?;
+                let secret_key = read_u32(stream)?;
                 Ok(Self::Cancel(Cancel { process_id, secret_key }))
             },
             Version { major: 1234, minor: 5679 } =>
                 Ok(Self::SSL),
             version => {
-                let params = StartupParam::read_many(stream).await?;
+                let params = StartupParam::read_many(stream)?;
                 Ok(Self::Startup(Startup { version, params }))
             }
         }
@@ -53,11 +53,11 @@ pub struct Version {
     minor: u16,
 }
 impl Version {
-    async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin
+    fn read<R>(stream: &mut R) -> IoResult<Self>
+    where R: Read
     {
-        let major = read_u16(stream).await?;
-        let minor = read_u16(stream).await?;
+        let major = read_u16(stream)?;
+        let minor = read_u16(stream)?;
         Ok(Version { major, minor })
     }
 }
@@ -68,19 +68,19 @@ pub struct StartupParam {
     value: Vec<u8>,
 }
 impl StartupParam {
-    async fn read_many<R>(stream: &mut R) -> IoResult<Vec<Self>>
-    where R: AsyncBufReadExt + Unpin
+    fn read_many<R>(stream: &mut R) -> IoResult<Vec<Self>>
+    where R: BufRead
     {
         let mut params = vec![];
         loop {
-            let mut name = read_null_terminated(stream).await?;
+            let mut name = read_null_terminated(stream)?;
             if name.pop() != Some(0) {
                 return Err(error_other("can't read startup param name"));
             }
             if name.is_empty() {
                 break;
             }
-            let mut value = read_null_terminated(stream).await?;
+            let mut value = read_null_terminated(stream)?;
             if value.pop() != Some(0) {
                 return Err(error_other("can't read startup param value"));
             }

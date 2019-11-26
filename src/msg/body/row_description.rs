@@ -2,7 +2,7 @@ use crate::msg::util::io::*;
 use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::Result as IoResult;
+use ::std::io::{BufRead, Result as IoResult};
 
 #[derive(Debug, PartialEq)]
 pub struct RowDescription {
@@ -48,29 +48,29 @@ impl RowDescription {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
-        let count = read_u16(stream).await?;
+    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: BufRead {
+        let count = read_u16(stream)?;
         let mut fields = Vec::with_capacity(count as usize);
         for _ in 0..count {
-            fields.push(Field::read(stream).await?)
+            fields.push(Field::read(stream)?)
         }
         Ok(Self { fields })
     }
 }
 
 impl Field {
-    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin
+    pub fn read<R>(stream: &mut R) -> IoResult<Self>
+    where R: BufRead
     {
-        let mut name = read_null_terminated(stream).await?;
+        let mut name = read_null_terminated(stream)?;
         name.pop().ok_or_else(|| error_other("RowDescription: field name doesn't contain even 0-byte"))?;
-        let column_oid = read_u32(stream).await?;
-        let column_attr_num = read_u16(stream).await?;
-        let type_oid = read_u32(stream).await?;
-        let type_size = read_u16(stream).await? as i16;
-        let type_modifier = read_u32(stream).await? as i32;
-        let format = match read_u16(stream).await? {
+        let column_oid = read_u32(stream)?;
+        let column_attr_num = read_u16(stream)?;
+        let type_oid = read_u32(stream)?;
+        let type_size = read_u16(stream)? as i16;
+        let type_modifier = read_u32(stream)? as i32;
+        let format = match read_u16(stream)? {
             0 => Format::Text,
             1 => Format::Binary,
             x => return Err(error_other(&format!("RowDescription: incorrect format {}", x)))
@@ -102,7 +102,7 @@ mod tests {
     fn two_fields() {
         let mut bytes: &[u8] = &[
             b'T',
-            0, 0, 0, 53,  // len
+            0, 0, 0, 55,  // len
             0, 2,  // fields count
             // first field:
             b'F', b'i', b'r', b's', b't', 0,  // name

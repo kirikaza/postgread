@@ -1,7 +1,7 @@
 use crate::msg::util::io::*;
 use crate::msg::util::read::*;
-use ::futures::io::AsyncBufReadExt;
-use ::std::io::Result as IoResult;
+use ::futures::io::AsyncReadExt;
+use ::std::io::{Read, Result as IoResult};
 
 #[derive(Debug, PartialEq)]
 pub struct BackendKeyData {
@@ -13,14 +13,14 @@ impl BackendKeyData {
     pub const TYPE_BYTE: u8 = b'K';
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
+    where R: AsyncReadExt + Unpin {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
-        let process_id = read_u32(stream).await?;
-        let secret_key = read_u32(stream).await?;
+    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: Read {
+        let process_id = read_u32(stream)?;
+        let secret_key = read_u32(stream)?;
         Ok(Self { process_id, secret_key })
     }
 }

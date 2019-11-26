@@ -13,7 +13,7 @@ impl Terminate {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub async fn read_body<R>(_stream: &mut R, _body_len: u32) -> IoResult<Self> {
+    pub fn read_body<R>(_stream: &mut R, _body_len: u32) -> IoResult<Self> {
         Ok(Self {})
     }
 }
