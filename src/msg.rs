@@ -4,7 +4,7 @@ pub mod body;
 mod util;
 
 use body::*;
-use util::io::*;
+use util::async_io::*;
 
 use ::futures::io::{AsyncBufReadExt, Result as IoResult};
 use ::std::fmt::Debug;

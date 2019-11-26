@@ -1,7 +1,7 @@
 use crate::msg::util::io::*;
 use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
-use ::std::io::Result as IoResult;
+use ::std::io::{Read, Result as IoResult};
 
 #[derive(Debug, PartialEq)]
 pub struct ReadyForQuery {
@@ -23,9 +23,9 @@ impl ReadyForQuery {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
-        let status = match read_u8(stream).await? {
+    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: Read {
+        let status = match read_u8(stream)? {
             b'I' => Status::Idle,
             b'T' => Status::Transaction,
             b'E' => Status::Error,

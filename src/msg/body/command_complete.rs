@@ -1,8 +1,8 @@
 use crate::msg::util::io::*;
 use crate::msg::util::read::*;
-use ::futures::io::AsyncBufReadExt;
+use ::futures::io::AsyncReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::Result as IoResult;
+use ::std::io::{BufRead, Result as IoResult};
 
 #[derive(PartialEq)]
 pub struct CommandComplete {
@@ -20,13 +20,13 @@ impl CommandComplete {
     pub const TYPE_BYTE: u8 = b'C';
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
+    where R: AsyncReadExt + Unpin {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
-        let mut tag = read_null_terminated(stream).await?;
+    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: BufRead {
+        let mut tag = read_null_terminated(stream)?;
         tag.pop().ok_or_else(|| error_other("query doesn't contain even 0-byte"))?;
         Ok(Self { tag })
     }

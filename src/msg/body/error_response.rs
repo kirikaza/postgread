@@ -1,8 +1,8 @@
 use crate::msg::util::io::*;
 use crate::msg::util::read::*;
-use ::futures::io::AsyncBufReadExt;
+use ::futures::io::AsyncReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::Result as IoResult;
+use ::std::io::{BufRead, Result as IoResult};
 
 #[derive(Default, PartialEq)]
 pub struct ErrorResponse {
@@ -92,11 +92,11 @@ macro_rules! read_struct_of_opt_fields {
         $($field_type_byte:expr => $field:ident),*
     ) => {
         loop {
-            match read_u8($stream).await? {
+            match read_u8($stream)? {
                 0 => break,
                 $(
                     $field_type_byte => {
-                        let mut value = read_null_terminated($stream).await?;
+                        let mut value = read_null_terminated($stream)?;
                         if value.pop().is_none() {
                             return Err(error_other(concat!("ErrorResponse: field ", stringify!($field), " doesn't contain even 0-byte")))
                         }
@@ -113,12 +113,12 @@ impl ErrorResponse {
     pub const TYPE_BYTE: u8 = b'E';
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
+    where R: AsyncReadExt + Unpin {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub async fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
+    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
+    where R: BufRead {
         let mut body = Self { ..Default::default() };
         read_struct_of_opt_fields!(stream, body,
             b'S' => localized_severity,
@@ -167,7 +167,7 @@ mod tests {
     fn all_fields() {
         let mut bytes = vec![
             b'E',
-            0, 0, 0, 78,  // len
+            0, 0, 0, 79,  // len
         ];
         bytes.extend_from_slice(b"S\xd1\x8d\xd0\xb9\0");
         bytes.extend_from_slice(b"Vab\0");
