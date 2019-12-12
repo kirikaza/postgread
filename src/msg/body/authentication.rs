@@ -21,33 +21,33 @@ impl Authentication {
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
     where R: AsyncReadExt + Unpin {
-        read_msg_with_len(stream, Self::read_body).await
+        read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn read_body(stream: &mut BytesSource, body_len: u32) -> DecodeResult<Self> {
-        let auth_type = stream.take_u32()?;
+    pub fn decode_body(bytes: &mut BytesSource, body_len: u32) -> DecodeResult<Self> {
+        let auth_type = bytes.take_u32()?;
         let left_len = body_len - size_of_val(&auth_type) as u32;
         match auth_type {
             0 => Ok(Self::Ok),
             2 => Ok(Self::KerberosV5),
             3 => Ok(Self::CleartextPassword),
-            5 => Self::read_md5_password(stream),
+            5 => Self::decode_md5_password(bytes),
             6 => Ok(Self::SCMCredential),
             7 => Ok(Self::GSS),
-            8 => Self::read_gss_continue(stream, left_len),
+            8 => Self::decode_gss_continue(bytes, left_len),
             9 => Ok(Self::SSPI),
             x => Err(Unknown(format!("has unknown sub-type {}", x))),
         }
     }
 
-    fn read_md5_password(stream: &mut BytesSource) -> DecodeResult<Self> {
+    fn decode_md5_password(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let mut salt = [0u8; 4];
-        stream.take_slice(&mut salt)?;
+        bytes.take_slice(&mut salt)?;
         Ok(Self::MD5Password { salt })
     }
 
-    fn read_gss_continue(stream: &mut BytesSource, left_len: u32) -> DecodeResult<Self> {
-        let auth_data = stream.take_vec(left_len as usize)?;
+    fn decode_gss_continue(bytes: &mut BytesSource, left_len: u32) -> DecodeResult<Self> {
+        let auth_data = bytes.take_vec(left_len as usize)?;
         Ok(Self::GSSContinue { auth_data })
     }
 }

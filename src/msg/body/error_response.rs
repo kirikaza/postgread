@@ -87,18 +87,18 @@ impl Debug for ErrorResponse {
 
 macro_rules! read_struct_of_opt_fields {
     (
-        $stream:ident,
+        $bytes:ident,
         $result:ident,
         $($field_type_byte:expr => $field:ident),*
     ) => {
         {
             let mut index = 0;
             loop {
-                match $stream.take_u8()? {
+                match $bytes.take_u8()? {
                     0 => break,
                     $(
                         $field_type_byte => {
-                            let value = $stream.take_until_null()?;
+                            let value = $bytes.take_until_null()?;
                             $result.$field = Some(value);
                         },
                     )*
@@ -115,12 +115,12 @@ impl ErrorResponse {
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
     where R: AsyncReadExt + Unpin {
-        read_msg_with_len(stream, Self::read_body).await
+        read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
         let mut body = Self { ..Default::default() };
-        read_struct_of_opt_fields!(stream, body,
+        read_struct_of_opt_fields!(bytes, body,
             b'S' => localized_severity,
             b'V' => severity,
             b'C' => code,

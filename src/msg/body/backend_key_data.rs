@@ -14,12 +14,12 @@ impl BackendKeyData {
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
     where R: AsyncReadExt + Unpin {
-        read_msg_with_len(stream, Self::read_body).await
+        read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
-        let process_id = stream.take_u32()?;
-        let secret_key = stream.take_u32()?;
+    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        let process_id = bytes.take_u32()?;
+        let secret_key = bytes.take_u32()?;
         Ok(Self { process_id, secret_key })
     }
 }

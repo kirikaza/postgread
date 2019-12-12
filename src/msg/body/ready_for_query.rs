@@ -20,11 +20,11 @@ impl ReadyForQuery {
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
     where R: AsyncBufReadExt + Unpin {
-        read_msg_with_len(stream, Self::read_body).await
+        read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
-        let status = match stream.take_u8()? {
+    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        let status = match bytes.take_u8()? {
             b'I' => Status::Idle,
             b'T' => Status::Transaction,
             b'E' => Status::Error,
