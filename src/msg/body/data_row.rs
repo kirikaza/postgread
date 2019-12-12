@@ -30,25 +30,25 @@ impl DataRow {
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
     where R: AsyncReadExt + Unpin {
-        read_msg_with_len(stream, Self::read_body).await
+        read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
-        let count = stream.take_u16()?;
+    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        let count = bytes.take_u16()?;
         let mut columns = Vec::with_capacity(count as usize);
         for i in 0..count {
-            columns.push(Column::read(stream, i)?)
+            columns.push(Column::decode(bytes, i)?)
         }
         Ok(Self { columns })
     }
 }
 
 impl Column {
-    pub fn read(stream: &mut BytesSource, index: u16) -> DecodeResult<Self> {
-        match stream.take_u32()? as i32 {
+    pub fn decode(bytes: &mut BytesSource, index: u16) -> DecodeResult<Self> {
+        match bytes.take_u32()? as i32 {
             -1 => Ok(Self::Null),
             value_len if value_len >= 0 => {
-                let value = stream.take_vec(value_len as usize)?;
+                let value = bytes.take_vec(value_len as usize)?;
                 Ok(Self::Value(value))
             },
             x => Err(Incorrect(format!("column[{}]: length of value should be >= -1 but is {}", index, x))),

@@ -26,20 +26,20 @@ pub struct Startup {
 impl Initial {
     pub async fn read<R>(stream: &mut R) -> IoResult<Option<Self>>
     where R: AsyncReadExt + Unpin {
-        read_msg_with_len_unless_eof(stream, Self::read_body).await
+        read_msg_with_len_unless_eof(stream, Self::decode_body).await
     }
 
-    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
-        match Version::read(stream)? {
+    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        match Version::decode(bytes)? {
             Version { major: 1234, minor: 5678 } => {
-                let process_id = stream.take_u32()?;
-                let secret_key = stream.take_u32()?;
+                let process_id = bytes.take_u32()?;
+                let secret_key = bytes.take_u32()?;
                 Ok(Self::Cancel(Cancel { process_id, secret_key }))
             },
             Version { major: 1234, minor: 5679 } =>
                 Ok(Self::SSL),
             version => {
-                let params = StartupParam::read_many(stream)?;
+                let params = StartupParam::decode_many(bytes)?;
                 Ok(Self::Startup(Startup { version, params }))
             }
         }
@@ -52,9 +52,9 @@ pub struct Version {
     minor: u16,
 }
 impl Version {
-    fn read(stream: &mut BytesSource) -> DecodeResult<Self> {
-        let major = stream.take_u16()?;
-        let minor = stream.take_u16()?;
+    fn decode(bytes: &mut BytesSource) -> DecodeResult<Self> {
+        let major = bytes.take_u16()?;
+        let minor = bytes.take_u16()?;
         Ok(Version { major, minor })
     }
 }
@@ -65,14 +65,14 @@ pub struct StartupParam {
     value: Vec<u8>,
 }
 impl StartupParam {
-    fn read_many(stream: &mut BytesSource) -> DecodeResult<Vec<Self>> {
+    fn decode_many(bytes: &mut BytesSource) -> DecodeResult<Vec<Self>> {
         let mut params = vec![];
         loop {
-            let name = stream.take_until_null()?;
+            let name = bytes.take_until_null()?;
             if name.is_empty() {
                 break;
             }
-            let value = stream.take_until_null()?;
+            let value = bytes.take_until_null()?;
             params.push(StartupParam { name, value });
         }
         Ok(params)

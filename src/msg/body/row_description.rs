@@ -45,28 +45,28 @@ impl RowDescription {
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
     where R: AsyncBufReadExt + Unpin {
-        read_msg_with_len(stream, Self::read_body).await
+        read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
-        let count = stream.take_u16()?;
+    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        let count = bytes.take_u16()?;
         let mut fields = Vec::with_capacity(count as usize);
         for index in 0..count {
-            fields.push(Field::read(stream, index)?)
+            fields.push(Field::decode(bytes, index)?)
         }
         Ok(Self { fields })
     }
 }
 
 impl Field {
-    pub fn read(stream: &mut BytesSource, index: u16) -> DecodeResult<Self> {
-        let name = stream.take_until_null()?;
-        let column_oid = stream.take_u32()?;
-        let column_attr_num = stream.take_u16()?;
-        let type_oid = stream.take_u32()?;
-        let type_size = stream.take_u16()? as i16;
-        let type_modifier = stream.take_u32()? as i32;
-        let format = match stream.take_u16()? {
+    pub fn decode(bytes: &mut BytesSource, index: u16) -> DecodeResult<Self> {
+        let name = bytes.take_until_null()?;
+        let column_oid = bytes.take_u32()?;
+        let column_attr_num = bytes.take_u16()?;
+        let type_oid = bytes.take_u32()?;
+        let type_size = bytes.take_u16()? as i16;
+        let type_modifier = bytes.take_u32()? as i32;
+        let format = match bytes.take_u16()? {
             0 => Format::Text,
             1 => Format::Binary,
             x => return Err(Unknown(format!("Field[{}] has unknown format {}", index, x)))
