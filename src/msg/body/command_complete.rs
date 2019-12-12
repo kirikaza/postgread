@@ -24,7 +24,7 @@ impl CommandComplete {
         read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let tag = bytes.take_until_null()?;
         Ok(Self { tag })
     }

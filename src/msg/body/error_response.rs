@@ -118,7 +118,7 @@ impl ErrorResponse {
         read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let mut body = Self { ..Default::default() };
         read_struct_of_opt_fields!(bytes, body,
             b'S' => localized_severity,

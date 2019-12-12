@@ -29,7 +29,7 @@ impl Initial {
         read_msg_with_len_unless_eof(stream, Self::decode_body).await
     }
 
-    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         match Version::decode(bytes)? {
             Version { major: 1234, minor: 5678 } => {
                 let process_id = bytes.take_u32()?;
