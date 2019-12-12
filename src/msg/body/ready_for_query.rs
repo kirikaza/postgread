@@ -1,7 +1,7 @@
-use crate::msg::util::io::*;
+use crate::msg::util::decode::{*, Problem::*};
 use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
-use ::std::io::{Read, Result as IoResult};
+use ::std::io::Result as IoResult;
 
 #[derive(Debug, PartialEq)]
 pub struct ReadyForQuery {
@@ -23,13 +23,12 @@ impl ReadyForQuery {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: Read {
-        let status = match read_u8(stream)? {
+    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        let status = match stream.take_u8()? {
             b'I' => Status::Idle,
             b'T' => Status::Transaction,
             b'E' => Status::Error,
-            byte => return Err(error_other(&format!("incorrect status {}", byte as char))),
+            byte => return Err(Unknown(format!("status is unknown: {}", byte))),
         };
         Ok(Self { status })
     }
@@ -85,10 +84,10 @@ mod tests {
         let mut bytes: &[u8] = &[
             b'Z',
             0, 0, 0, 5, // len
-            b'Z',
+            255,
         ];
         assert_eq!(
-            Err("incorrect status Z".to_owned()),
+            Err("Unknown(\"status is unknown: 255\")".to_owned()),
             force_read_backend(&mut bytes),
         );
     }

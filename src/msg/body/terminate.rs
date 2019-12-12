@@ -10,11 +10,7 @@ impl Terminate {
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
     where R: AsyncBufReadExt + Unpin {
-        read_msg_with_len(stream, Self::read_body).await
-    }
-
-    pub fn read_body<R>(_stream: &mut R, _body_len: u32) -> IoResult<Self> {
-        Ok(Self {})
+        read_msg_with_len(stream, |_, _| Ok(Self {})).await
     }
 }
 

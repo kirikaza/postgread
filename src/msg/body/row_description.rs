@@ -1,8 +1,8 @@
-use crate::msg::util::io::*;
+use crate::msg::util::decode::{*, Problem::*};
 use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::{BufRead, Result as IoResult};
+use ::std::io::Result as IoResult;
 
 #[derive(Debug, PartialEq)]
 pub struct RowDescription {
@@ -48,32 +48,28 @@ impl RowDescription {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: BufRead {
-        let count = read_u16(stream)?;
+    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        let count = stream.take_u16()?;
         let mut fields = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            fields.push(Field::read(stream)?)
+        for index in 0..count {
+            fields.push(Field::read(stream, index)?)
         }
         Ok(Self { fields })
     }
 }
 
 impl Field {
-    pub fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: BufRead
-    {
-        let mut name = read_null_terminated(stream)?;
-        name.pop().ok_or_else(|| error_other("RowDescription: field name doesn't contain even 0-byte"))?;
-        let column_oid = read_u32(stream)?;
-        let column_attr_num = read_u16(stream)?;
-        let type_oid = read_u32(stream)?;
-        let type_size = read_u16(stream)? as i16;
-        let type_modifier = read_u32(stream)? as i32;
-        let format = match read_u16(stream)? {
+    pub fn read(stream: &mut BytesSource, index: u16) -> DecodeResult<Self> {
+        let name = stream.take_until_null()?;
+        let column_oid = stream.take_u32()?;
+        let column_attr_num = stream.take_u16()?;
+        let type_oid = stream.take_u32()?;
+        let type_size = stream.take_u16()? as i16;
+        let type_modifier = stream.take_u32()? as i32;
+        let format = match stream.take_u16()? {
             0 => Format::Text,
             1 => Format::Binary,
-            x => return Err(error_other(&format!("RowDescription: incorrect format {}", x)))
+            x => return Err(Unknown(format!("Field[{}] has unknown format {}", index, x)))
         };
         Ok(Self { name, column_oid, column_attr_num, type_oid, type_size, type_modifier, format })
     }

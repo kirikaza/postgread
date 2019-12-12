@@ -1,8 +1,8 @@
-use crate::msg::util::io::*;
+use crate::msg::util::decode::{*, Problem::*};
 use crate::msg::util::read::*;
 use ::futures::io::AsyncReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::{BufRead, Result as IoResult};
+use ::std::io::Result as IoResult;
 
 #[derive(Default, PartialEq)]
 pub struct ErrorResponse {
@@ -91,19 +91,20 @@ macro_rules! read_struct_of_opt_fields {
         $result:ident,
         $($field_type_byte:expr => $field:ident),*
     ) => {
-        loop {
-            match read_u8($stream)? {
-                0 => break,
-                $(
-                    $field_type_byte => {
-                        let mut value = read_null_terminated($stream)?;
-                        if value.pop().is_none() {
-                            return Err(error_other(concat!("ErrorResponse: field ", stringify!($field), " doesn't contain even 0-byte")))
-                        }
-                        $result.$field = Some(value);
-                    },
-                )*
-                x => return Err(error_other(&format!("ErrorResponse: incorrect field type {}", x))),
+        {
+            let mut index = 0;
+            loop {
+                match $stream.take_u8()? {
+                    0 => break,
+                    $(
+                        $field_type_byte => {
+                            let value = $stream.take_until_null()?;
+                            $result.$field = Some(value);
+                        },
+                    )*
+                    x => return Err(Unknown(format!("field[{}] has unknown type {}", index, x))),
+                };
+                index += 1;
             }
         }
     };
@@ -117,8 +118,7 @@ impl ErrorResponse {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: BufRead {
+    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
         let mut body = Self { ..Default::default() };
         read_struct_of_opt_fields!(stream, body,
             b'S' => localized_severity,

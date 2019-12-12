@@ -1,9 +1,9 @@
-use crate::msg::util::io::*;
+use crate::msg::util::decode::{*, Problem::*};
 use crate::msg::util::read::*;
 use ::futures::io::AsyncReadExt;
 use ::hex;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::{Read, Result as IoResult};
+use ::std::io::Result as IoResult;
 
 #[derive(Debug, PartialEq)]
 pub struct DataRow {
@@ -33,28 +33,25 @@ impl DataRow {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: Read {
-        let count = read_u16(stream)?;
+    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        let count = stream.take_u16()?;
         let mut columns = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            columns.push(Column::read(stream)?)
+        for i in 0..count {
+            columns.push(Column::read(stream, i)?)
         }
         Ok(Self { columns })
     }
 }
 
 impl Column {
-    pub fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: Read
-    {
-        match read_u32(stream)? as i32 {
+    pub fn read(stream: &mut BytesSource, index: u16) -> DecodeResult<Self> {
+        match stream.take_u32()? as i32 {
             -1 => Ok(Self::Null),
             value_len if value_len >= 0 => {
-                let value = read_vec(stream, value_len as usize)?;
+                let value = stream.take_vec(value_len as usize)?;
                 Ok(Self::Value(value))
             },
-            x => Err(error_other(&format!("DataRow: incorrect length of column value {}", x))),
+            x => Err(Incorrect(format!("column[{}]: length of value should be >= -1 but is {}", index, x))),
         }
     }
 }

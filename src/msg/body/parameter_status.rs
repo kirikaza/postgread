@@ -1,8 +1,8 @@
-use crate::msg::util::io::*;
+use crate::msg::util::decode::*;
 use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::{BufRead, Result as IoResult};
+use ::std::io::Result as IoResult;
 
 #[derive(PartialEq)]
 pub struct ParameterStatus {
@@ -18,12 +18,9 @@ impl ParameterStatus {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: BufRead {
-        let mut name = read_null_terminated(stream)?;
-        let mut value = read_null_terminated(stream)?;
-        name.pop();
-        value.pop();
+    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        let name = stream.take_until_null()?;
+        let value = stream.take_until_null()?;
         Ok(Self { name, value })
     }
 }

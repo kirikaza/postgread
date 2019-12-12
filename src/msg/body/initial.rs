@@ -1,8 +1,8 @@
-use crate::msg::util::io::*;
+use crate::msg::util::decode::*;
 use crate::msg::util::read::*;
 use ::futures::io::AsyncReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::{BufRead, Read, Result as IoResult};
+use ::std::io::Result as IoResult;
 
 #[derive(Debug, PartialEq)]
 pub enum Initial {
@@ -29,12 +29,11 @@ impl Initial {
         read_msg_with_len_unless_eof(stream, Self::read_body).await
     }
 
-    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: BufRead {
+    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
         match Version::read(stream)? {
             Version { major: 1234, minor: 5678 } => {
-                let process_id = read_u32(stream)?;
-                let secret_key = read_u32(stream)?;
+                let process_id = stream.take_u32()?;
+                let secret_key = stream.take_u32()?;
                 Ok(Self::Cancel(Cancel { process_id, secret_key }))
             },
             Version { major: 1234, minor: 5679 } =>
@@ -53,11 +52,9 @@ pub struct Version {
     minor: u16,
 }
 impl Version {
-    fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: Read
-    {
-        let major = read_u16(stream)?;
-        let minor = read_u16(stream)?;
+    fn read(stream: &mut BytesSource) -> DecodeResult<Self> {
+        let major = stream.take_u16()?;
+        let minor = stream.take_u16()?;
         Ok(Version { major, minor })
     }
 }
@@ -68,22 +65,14 @@ pub struct StartupParam {
     value: Vec<u8>,
 }
 impl StartupParam {
-    fn read_many<R>(stream: &mut R) -> IoResult<Vec<Self>>
-    where R: BufRead
-    {
+    fn read_many(stream: &mut BytesSource) -> DecodeResult<Vec<Self>> {
         let mut params = vec![];
         loop {
-            let mut name = read_null_terminated(stream)?;
-            if name.pop() != Some(0) {
-                return Err(error_other("can't read startup param name"));
-            }
+            let name = stream.take_until_null()?;
             if name.is_empty() {
                 break;
             }
-            let mut value = read_null_terminated(stream)?;
-            if value.pop() != Some(0) {
-                return Err(error_other("can't read startup param value"));
-            }
+            let value = stream.take_until_null()?;
             params.push(StartupParam { name, value });
         }
         Ok(params)
