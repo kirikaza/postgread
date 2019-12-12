@@ -2,7 +2,6 @@ use crate::msg::util::decode::{*, Problem::*};
 use crate::msg::util::read::*;
 use ::futures::io::AsyncReadExt;
 use ::std::io::Result as IoResult;
-use ::std::mem::size_of_val;
 
 #[derive(Debug, PartialEq)]
 pub enum Authentication {
@@ -24,9 +23,8 @@ impl Authentication {
         read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn decode_body(bytes: &mut BytesSource, body_len: u32) -> DecodeResult<Self> {
+    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let auth_type = bytes.take_u32()?;
-        let left_len = body_len - size_of_val(&auth_type) as u32;
         match auth_type {
             0 => Ok(Self::Ok),
             2 => Ok(Self::KerberosV5),
@@ -34,7 +32,7 @@ impl Authentication {
             5 => Self::decode_md5_password(bytes),
             6 => Ok(Self::SCMCredential),
             7 => Ok(Self::GSS),
-            8 => Self::decode_gss_continue(bytes, left_len),
+            8 => Self::decode_gss_continue(bytes),
             9 => Ok(Self::SSPI),
             x => Err(Unknown(format!("has unknown sub-type {}", x))),
         }
@@ -46,8 +44,8 @@ impl Authentication {
         Ok(Self::MD5Password { salt })
     }
 
-    fn decode_gss_continue(bytes: &mut BytesSource, left_len: u32) -> DecodeResult<Self> {
-        let auth_data = bytes.take_vec(left_len as usize)?;
+    fn decode_gss_continue(bytes: &mut BytesSource) -> DecodeResult<Self> {
+        let auth_data = bytes.take_vec(bytes.left())?;
         Ok(Self::GSSContinue { auth_data })
     }
 }

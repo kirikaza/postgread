@@ -48,7 +48,7 @@ impl RowDescription {
         read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let count = bytes.take_u16()?;
         let mut fields = Vec::with_capacity(count as usize);
         for index in 0..count {

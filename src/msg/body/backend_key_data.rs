@@ -17,7 +17,7 @@ impl BackendKeyData {
         read_msg_with_len(stream, Self::decode_body).await
     }
 
-    pub fn decode_body(bytes: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let process_id = bytes.take_u32()?;
         let secret_key = bytes.take_u32()?;
         Ok(Self { process_id, secret_key })
