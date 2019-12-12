@@ -1,5 +1,5 @@
-pub mod io;
 pub mod async_io;
+pub mod decode;
 pub mod read;
 
 #[cfg(test)]

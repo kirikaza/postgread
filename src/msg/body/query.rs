@@ -1,8 +1,8 @@
-use crate::msg::util::io::*;
+use crate::msg::util::decode::*;
 use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::{BufRead, Result as IoResult};
+use ::std::io::Result as IoResult;
 
 #[derive(PartialEq)]
 pub struct Query (
@@ -17,10 +17,8 @@ impl Query {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub fn read_body<R>(stream: &mut R, _body_len: u32) -> IoResult<Self>
-    where R: BufRead {
-        let mut query = read_null_terminated(stream)?;
-        query.pop().ok_or_else(|| error_other("Query: query doesn't contain even 0-byte"))?;
+    pub fn read_body(stream: &mut BytesSource, _body_len: u32) -> DecodeResult<Self> {
+        let query = stream.take_until_null()?;
         Ok(Self(query))
     }
 }

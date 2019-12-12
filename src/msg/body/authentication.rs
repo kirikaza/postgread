@@ -1,7 +1,7 @@
-use crate::msg::util::io::*;
+use crate::msg::util::decode::{*, Problem::*};
 use crate::msg::util::read::*;
 use ::futures::io::AsyncReadExt;
-use ::std::io::{BufRead, Read, Result as IoResult};
+use ::std::io::Result as IoResult;
 use ::std::mem::size_of_val;
 
 #[derive(Debug, PartialEq)]
@@ -24,9 +24,8 @@ impl Authentication {
         read_msg_with_len(stream, Self::read_body).await
     }
 
-    pub fn read_body<R>(stream: &mut R, body_len: u32) -> IoResult<Self>
-    where R: BufRead {
-        let auth_type = read_u32(stream)?;
+    pub fn read_body(stream: &mut BytesSource, body_len: u32) -> DecodeResult<Self> {
+        let auth_type = stream.take_u32()?;
         let left_len = body_len - size_of_val(&auth_type) as u32;
         match auth_type {
             0 => Ok(Self::Ok),
@@ -37,23 +36,18 @@ impl Authentication {
             7 => Ok(Self::GSS),
             8 => Self::read_gss_continue(stream, left_len),
             9 => Ok(Self::SSPI),
-            x => Err(error_other(&format!("Authentication: unknown auth type {}", x))),
+            x => Err(Unknown(format!("has unknown sub-type {}", x))),
         }
     }
 
-    fn read_md5_password<R>(stream: &mut R) -> IoResult<Self>
-    where R: Read
-    {
+    fn read_md5_password(stream: &mut BytesSource) -> DecodeResult<Self> {
         let mut salt = [0u8; 4];
-        stream.read_exact(&mut salt)?;
+        stream.take_slice(&mut salt)?;
         Ok(Self::MD5Password { salt })
     }
 
-    fn read_gss_continue<R>(stream: &mut R, left_len: u32) -> IoResult<Self>
-    where R: BufRead
-    {
-        let mut auth_data = Vec::with_capacity(left_len as usize);
-        stream.read_to_end(&mut auth_data)?;
+    fn read_gss_continue(stream: &mut BytesSource, left_len: u32) -> DecodeResult<Self> {
+        let auth_data = stream.take_vec(left_len as usize)?;
         Ok(Self::GSSContinue { auth_data })
     }
 }
