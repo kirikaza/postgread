@@ -26,7 +26,7 @@ pub struct Startup {
 impl Initial {
     pub async fn read<R>(stream: &mut R) -> IoResult<Option<Self>>
     where R: AsyncReadExt + Unpin {
-        read_msg_with_len_unless_eof(stream, Self::decode_body).await
+        read_msg_with_len_unless_eof(stream).await
     }
 }
 
