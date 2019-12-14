@@ -1,3 +1,4 @@
+use crate::msg::util::decode::{BytesSource, DecodeResult, MsgDecode};
 use crate::msg::util::read::*;
 use ::futures::io::AsyncBufReadExt;
 use ::std::io::Result as IoResult;
@@ -10,29 +11,24 @@ impl Terminate {
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
     where R: AsyncBufReadExt + Unpin {
-        read_msg_with_len(stream, |_| Ok(Self {})).await
+        read_msg_with_len(stream, Self::decode_body).await
+    }
+}
+
+impl MsgDecode for Terminate {
+    fn decode_body(_: &mut BytesSource) -> DecodeResult<Self> {
+        Ok(Self {})
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Terminate;
-    use crate::msg::FrontendMessage;
     use crate::msg::util::test::*;
 
     #[test]
     fn simple() {
-        let mut bytes: &[u8] = &[
-            b'X',
-            0, 0, 0, 4, // len
-        ];
-        assert_eq!(
-            ok_some(Terminate {}),
-            force_read_frontend(&mut bytes, false),
-        );
-    }
-
-    fn ok_some(body: Terminate) -> Result<Option<FrontendMessage>, String> {
-        ok_some_msg(body, FrontendMessage::Terminate)
+        let bytes: &[u8] = &[];
+        assert_decode_ok(Terminate {}, bytes);
     }
 }

@@ -47,8 +47,10 @@ impl RowDescription {
     where R: AsyncBufReadExt + Unpin {
         read_msg_with_len(stream, Self::decode_body).await
     }
+}
 
-    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+impl MsgDecode for RowDescription {
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let count = bytes.take_u16()?;
         let mut fields = Vec::with_capacity(count as usize);
         for index in 0..count {
@@ -78,27 +80,19 @@ impl Field {
 #[cfg(test)]
 mod tests {
     use super::{RowDescription, Field, Format::*};
-    use crate::msg::BackendMessage;
     use crate::msg::util::test::*;
 
     #[test]
     fn no_fields() {
-        let mut bytes: &[u8] = &[
-            b'T',
-            0, 0, 0, 6,  // len
+        let bytes: &[u8] = &[
             0, 0,  // fields count
         ];
-        assert_eq!(
-            ok_some(RowDescription { fields: vec![] }),
-            force_read_backend(&mut bytes),
-        );
+        assert_decode_ok(RowDescription { fields: vec![] }, bytes);
     }
 
     #[test]
     fn two_fields() {
-        let mut bytes: &[u8] = &[
-            b'T',
-            0, 0, 0, 55,  // len
+        let bytes = &[
             0, 2,  // fields count
             // first field:
             b'F', b'i', b'r', b's', b't', 0,  // name
@@ -117,8 +111,8 @@ mod tests {
             0x23, 0x22, 0x21, 0x20,  // type modifier
             0, 1,  //  format=binary
         ];
-        assert_eq!(
-            ok_some(RowDescription { fields: vec![
+        assert_decode_ok(
+            RowDescription { fields: vec![
                 Field {
                     name: Vec::from("First"),
                     column_oid: 0x10111213,
@@ -137,12 +131,8 @@ mod tests {
                     type_modifier: 0x23222120,
                     format: Binary,
                 },
-            ] }),
-            force_read_backend(&mut bytes),
+            ]},
+            bytes,
         );
-    }
-
-    fn ok_some(body: RowDescription) -> Result<Option<BackendMessage>, String> {
-        ok_some_msg(body, BackendMessage::RowDescription)
     }
 }

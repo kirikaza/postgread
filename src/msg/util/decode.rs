@@ -8,6 +8,10 @@ pub enum Problem {
 
 pub type DecodeResult<Ok> = std::result::Result<Ok, Problem>;
 
+pub trait MsgDecode : Sized {
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self>;
+}
+
 pub struct BytesSource<'a> {
     slice: &'a [u8],
     pos: usize,
