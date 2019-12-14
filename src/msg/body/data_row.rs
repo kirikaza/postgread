@@ -32,8 +32,10 @@ impl DataRow {
     where R: AsyncReadExt + Unpin {
         read_msg_with_len(stream, Self::decode_body).await
     }
+}
 
-    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+impl MsgDecode for DataRow {
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let count = bytes.take_u16()?;
         let mut columns = Vec::with_capacity(count as usize);
         for i in 0..count {
@@ -59,27 +61,19 @@ impl Column {
 #[cfg(test)]
 mod tests {
     use super::{DataRow, Column::*};
-    use crate::msg::BackendMessage;
     use crate::msg::util::test::*;
 
     #[test]
     fn no_columns() {
-        let mut bytes: &[u8] = &[
-            b'D',
-            0, 0, 0, 6,  // len
+        let bytes: &[u8] = &[
             0, 0,  // columns count
         ];
-        assert_eq!(
-            ok_some(DataRow { columns: vec![] }),
-            force_read_backend(&mut bytes),
-        );
+        assert_decode_ok(DataRow { columns: vec![] }, bytes);
     }
 
     #[test]
     fn many_columns() {
-        let mut bytes: &[u8] = &[
-            b'D',
-            0, 0, 0, 21,  // len
+        let bytes: &[u8] = &[
             0, 3,  // columns count
             // first column:
             0xFF, 0xFF, 0xFF, 0xFF,  //  value len=-1
@@ -89,17 +83,13 @@ mod tests {
             0, 0, 0, 3,  //  value len
             12, 34, 56  // value
         ];
-        assert_eq!(
-            ok_some(DataRow { columns: vec![
+        assert_decode_ok(
+            DataRow { columns: vec![
                 Null,
                 Value(vec![]),
                 Value(vec![12, 34, 56]),
-            ] }),
-            force_read_backend(&mut bytes),
+            ] },
+            bytes,
         );
-    }
-
-    fn ok_some(body: DataRow) -> Result<Option<BackendMessage>, String> {
-        ok_some_msg(body, BackendMessage::DataRow)
     }
 }

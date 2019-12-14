@@ -17,8 +17,10 @@ impl ParameterStatus {
     where R: AsyncBufReadExt + Unpin {
         read_msg_with_len(stream, Self::decode_body).await
     }
+}
 
-    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+impl MsgDecode for ParameterStatus {
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let name = bytes.take_until_null()?;
         let value = bytes.take_until_null()?;
         Ok(Self { name, value })
@@ -38,27 +40,17 @@ impl Debug for ParameterStatus {
 #[cfg(test)]
 mod tests {
     use super::ParameterStatus;
-    use crate::msg::BackendMessage;
     use crate::msg::util::test::*;
 
     #[test]
     fn simple() {
-        let mut bytes = vec![
-            b'S',
-            0, 0, 0, 17,  // len
-        ];
-        bytes.extend_from_slice(b"TimeZone\0UTC\0");
-        let mut bytes = &bytes[..];
-        assert_eq!(
-            ok_some(ParameterStatus {
+        let bytes = b"TimeZone\0UTC\0";
+        assert_decode_ok(
+            ParameterStatus {
                 name: Vec::from(&b"TimeZone"[..]),
                 value: Vec::from(&b"UTC"[..]),
-            }),
-            force_read_backend(&mut bytes),
+            },
+            bytes,
         );
-    }
-
-    fn ok_some(body: ParameterStatus) -> Result<Option<BackendMessage>, String> {
-        ok_some_msg(body, BackendMessage::ParameterStatus)
     }
 }

@@ -16,8 +16,10 @@ impl Query {
     where R: AsyncBufReadExt + Unpin {
         read_msg_with_len(stream, Self::decode_body).await
     }
+}
 
-    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+impl MsgDecode for Query {
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let query = bytes.take_until_null()?;
         Ok(Self(query))
     }
@@ -34,26 +36,11 @@ impl Debug for Query {
 #[cfg(test)]
 mod tests {
     use super::Query;
-    use crate::msg::FrontendMessage;
     use crate::msg::util::test::*;
 
     #[test]
     fn simple() {
-        let mut bytes = vec![
-            b'Q',
-            0, 0, 0, 14,  // len
-        ];
-        bytes.extend_from_slice(b"select 1;\0");
-        let mut bytes = &bytes[..];
-        assert_eq!(
-            ok_some(Query (
-                Vec::from("select 1;"),
-            )),
-            force_read_frontend(&mut bytes, false),
-        );
-    }
-
-    fn ok_some(body: Query) -> Result<Option<FrontendMessage>, String> {
-        ok_some_msg(body, FrontendMessage::Query)
+        let bytes = b"select 1;\0";
+        assert_decode_ok(Query(Vec::from("select 1;")), bytes);
     }
 }

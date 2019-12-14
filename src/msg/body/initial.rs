@@ -28,8 +28,10 @@ impl Initial {
     where R: AsyncReadExt + Unpin {
         read_msg_with_len_unless_eof(stream, Self::decode_body).await
     }
+}
 
-    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+impl MsgDecode for Initial {
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         match Version::decode(bytes)? {
             Version { major: 1234, minor: 5678 } => {
                 let process_id = bytes.take_u32()?;
@@ -91,61 +93,50 @@ impl Debug for StartupParam {
 #[cfg(test)]
 mod tests {
     use super::{Cancel, Initial, Startup, StartupParam, Version};
-    use crate::msg::FrontendMessage;
     use crate::msg::util::test::*;
 
     #[test]
     fn cancel() {
-        let mut bytes: &[u8] = &[
-            0, 0, 0, 16, // len
+        let bytes: &[u8] = &[
             4, 210, 22, 46, // 4*256+210=1234, 22*256+46=5678, these numbers instead of version mean "cancel"
             0x1, 0x2, 0x3, 0x4,  // process ID
             0x5, 0x6, 0x7, 0x8,  // secret key
         ];
-        assert_eq!(
-            ok_some(Initial::Cancel(Cancel { process_id: 0x01020304, secret_key: 0x05060708 })),
-            force_read_frontend(&mut bytes, true),
-        );
+        assert_decode_ok(Initial::Cancel(Cancel { process_id: 0x01020304, secret_key: 0x05060708 }), bytes);
     }
 
     #[test]
     fn ssl() {
-        let mut bytes: &[u8] = &[
-            0, 0, 0, 8, // len
+        let bytes: &[u8] = &[
             4, 210, 22, 47, // 4*256+210=1234, 22*256+47=5679, these numbers instead of version mean "SSL"
         ];
-        assert_eq!(
-            ok_some(Initial::SSL),
-            force_read_frontend(&mut bytes, true),
-        );
+        assert_decode_ok(Initial::SSL, bytes);
     }
 
     #[test]
     fn startup_without_params() {
-        let mut bytes: &[u8] = &[
-            0, 0, 0, 9, // len
+        let bytes = &[
             0, 3, 0, 1, // version
             0, // params
         ];
-        assert_eq!(
-            ok_some(Initial::Startup(Startup {
+        assert_decode_ok(
+            Initial::Startup(Startup {
                 version: Version { major: 3, minor: 1 },
                 params: vec![],
-            })),
-            force_read_frontend(&mut bytes, true),
+            }),
+            bytes,
         );
     }
 
     #[test]
     fn startup_with_params() {
         let mut bytes = vec![
-            0, 0, 0, 37, // len
             0, 3, 1, 0, // version
         ];
         bytes.extend_from_slice(b"user\0root\0database\0postgres\0\0");
-        let mut bytes = &bytes[..];
-        assert_eq!(
-            ok_some(Initial::Startup(Startup {
+        let bytes = bytes.as_slice();
+        assert_decode_ok(
+            Initial::Startup(Startup {
                 version: Version { major: 3, minor: 0x100 },
                 params: vec![
                     StartupParam {
@@ -157,12 +148,8 @@ mod tests {
                         value: Vec::from(&b"postgres"[..]),
                     },
                 ],
-            })),
-            force_read_frontend(&mut bytes, true),
+            }),
+            bytes,
         );
-    }
-
-    fn ok_some(body: Initial) -> Result<Option<FrontendMessage>, String> {
-        ok_some_msg(body, FrontendMessage::Initial)
     }
 }

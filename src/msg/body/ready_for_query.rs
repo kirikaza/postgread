@@ -22,8 +22,10 @@ impl ReadyForQuery {
     where R: AsyncBufReadExt + Unpin {
         read_msg_with_len(stream, Self::decode_body).await
     }
+}
 
-    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+impl MsgDecode for ReadyForQuery {
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let status = match bytes.take_u8()? {
             b'I' => Status::Idle,
             b'T' => Status::Transaction,
@@ -37,62 +39,30 @@ impl ReadyForQuery {
 #[cfg(test)]
 mod tests {
     use super::{ReadyForQuery, Status::*};
-    use crate::msg::BackendMessage;
+    use crate::msg::util::decode::Problem::*;
     use crate::msg::util::test::*;
 
     #[test]
     fn idle() {
-        let mut bytes: &[u8] = &[
-            b'Z',
-            0, 0, 0, 5, // len
-            b'I',
-        ];
-        assert_eq!(
-            ok_some(ReadyForQuery { status: Idle }),
-            force_read_backend(&mut bytes),
-        );
+        let bytes = b"I";
+        assert_decode_ok(ReadyForQuery { status: Idle }, bytes);
     }
 
     #[test]
     fn transaction() {
-        let mut bytes: &[u8] = &[
-            b'Z',
-            0, 0, 0, 5, // len
-            b'T',
-        ];
-        assert_eq!(
-            ok_some(ReadyForQuery { status: Transaction }),
-            force_read_backend(&mut bytes),
-        );
+        let bytes = b"T";
+        assert_decode_ok(ReadyForQuery { status: Transaction }, bytes);
     }
 
     #[test]
     fn error() {
-        let mut bytes: &[u8] = &[
-            b'Z',
-            0, 0, 0, 5, // len
-            b'E',
-        ];
-        assert_eq!(
-            ok_some(ReadyForQuery { status: Error }),
-            force_read_backend(&mut bytes),
-        );
+        let bytes = b"E";
+        assert_decode_ok(ReadyForQuery { status: Error }, bytes);
     }
 
     #[test]
     fn incorrect_status() {
-        let mut bytes: &[u8] = &[
-            b'Z',
-            0, 0, 0, 5, // len
-            255,
-        ];
-        assert_eq!(
-            Err("Unknown(\"status is unknown: 255\")".to_owned()),
-            force_read_backend(&mut bytes),
-        );
-    }
-
-    fn ok_some(body: ReadyForQuery) -> Result<Option<BackendMessage>, String> {
-        ok_some_msg(body, BackendMessage::ReadyForQuery)
+        let bytes = &[255u8];
+        assert_decode_err::<ReadyForQuery>(Unknown("status is unknown: 255".to_owned()), bytes);
     }
 }

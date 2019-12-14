@@ -117,8 +117,10 @@ impl ErrorResponse {
     where R: AsyncReadExt + Unpin {
         read_msg_with_len(stream, Self::decode_body).await
     }
+}
 
-    pub fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+impl MsgDecode for ErrorResponse {
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let mut body = Self { ..Default::default() };
         read_struct_of_opt_fields!(bytes, body,
             b'S' => localized_severity,
@@ -147,28 +149,17 @@ impl ErrorResponse {
 #[cfg(test)]
 mod tests {
     use super::{ErrorResponse};
-    use crate::msg::BackendMessage;
     use crate::msg::util::test::*;
 
     #[test]
     fn no_fields() {
-        let mut bytes: &[u8] = &[
-            b'E',
-            0, 0, 0, 5,  // len
-            0,  // zero instead of field type means "no fields more"
-        ];
-        assert_eq!(
-            ok_some(ErrorResponse { .. Default::default() }),
-            force_read_backend(&mut bytes),
-        );
+        let bytes: &[u8] = &[0];  // zero instead of field type means "no fields more"
+        assert_decode_ok(ErrorResponse { .. Default::default() }, bytes);
     }
 
     #[test]
     fn all_fields() {
-        let mut bytes = vec![
-            b'E',
-            0, 0, 0, 79,  // len
-        ];
+        let mut bytes = vec![];
         bytes.extend_from_slice(b"S\xd1\x8d\xd0\xb9\0");
         bytes.extend_from_slice(b"Vab\0");
         bytes.extend_from_slice(b"C12\0");
@@ -188,9 +179,9 @@ mod tests {
         bytes.extend_from_slice(b"L78\0");
         bytes.extend_from_slice(b"Ryz\0");
         bytes.extend_from_slice(&[0]);
-        let mut bytes = &bytes[..];
-        assert_eq!(
-            ok_some(ErrorResponse {
+        let bytes = bytes.as_slice();
+        assert_decode_ok(
+            ErrorResponse {
                 localized_severity: Some(Vec::from("эй")),
                 severity: Some(Vec::from("ab")),
                 code: Some(Vec::from("12")),
@@ -209,12 +200,8 @@ mod tests {
                 file: Some(Vec::from("wx")),
                 line: Some(Vec::from("78")),
                 routine: Some(Vec::from("yz")),
-            }),
-            force_read_backend(&mut bytes),
+            },
+            bytes,
         );
-    }
-
-    fn ok_some(body: ErrorResponse) -> Result<Option<BackendMessage>, String> {
-        ok_some_msg(body, BackendMessage::ErrorResponse)
     }
 }
