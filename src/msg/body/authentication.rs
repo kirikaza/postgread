@@ -20,7 +20,7 @@ impl Authentication {
 
     pub async fn read<R>(stream: &mut R) -> IoResult<Self>
     where R: AsyncReadExt + Unpin {
-        read_msg_with_len(stream, Self::decode_body).await
+        read_msg_with_len(stream).await
     }
 }
 
