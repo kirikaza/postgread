@@ -9,7 +9,6 @@ pub mod ready_for_query;
 pub mod row_description;
 pub mod initial;
 pub mod terminate;
-pub mod unknown;
 
 pub use authentication::Authentication;
 pub use backend_key_data::BackendKeyData;
@@ -22,4 +21,3 @@ pub use ready_for_query::ReadyForQuery;
 pub use row_description::RowDescription;
 pub use initial::Initial;
 pub use terminate::Terminate;
-pub use unknown::Unknown;

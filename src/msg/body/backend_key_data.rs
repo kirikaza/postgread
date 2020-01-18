@@ -1,7 +1,4 @@
 use crate::msg::util::decode::*;
-use crate::msg::util::read::*;
-use ::futures::io::AsyncReadExt;
-use ::std::io::Result as IoResult;
 
 #[derive(Debug, PartialEq)]
 pub struct BackendKeyData {
@@ -11,14 +8,11 @@ pub struct BackendKeyData {
 
 impl BackendKeyData {
     pub const TYPE_BYTE: u8 = b'K';
-
-    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncReadExt + Unpin {
-        read_msg_with_len(stream).await
-    }
 }
 
 impl MsgDecode for BackendKeyData {
+    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let process_id = bytes.take_u32()?;
         let secret_key = bytes.take_u32()?;
