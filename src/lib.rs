@@ -1,4 +1,4 @@
-#[macro_use] extern crate futures;
+extern crate futures;
 extern crate hex;
 
 #[cfg(test)] extern crate bytes;
@@ -6,5 +6,4 @@ extern crate hex;
 
 pub mod async_std_compat;
 pub mod convey;
-pub mod dup;
 pub mod msg;

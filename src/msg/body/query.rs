@@ -1,8 +1,5 @@
 use crate::msg::util::decode::*;
-use crate::msg::util::read::*;
-use ::futures::io::AsyncBufReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::Result as IoResult;
 
 #[derive(PartialEq)]
 pub struct Query (
@@ -11,14 +8,11 @@ pub struct Query (
 
 impl Query {
     pub const TYPE_BYTE: u8 = b'Q';
-
-    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncBufReadExt + Unpin {
-        read_msg_with_len(stream).await
-    }
 }
 
 impl MsgDecode for Query {
+    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let query = bytes.take_until_null()?;
         Ok(Self(query))

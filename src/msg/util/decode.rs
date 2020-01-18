@@ -9,6 +9,8 @@ pub enum Problem {
 pub type DecodeResult<Ok> = std::result::Result<Ok, Problem>;
 
 pub trait MsgDecode : Sized {
+    const TYPE_BYTE_OPT: Option<u8>;
+
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self>;
 }
 

@@ -1,8 +1,5 @@
 use crate::msg::util::decode::{*, Problem::*};
-use crate::msg::util::read::*;
-use ::futures::io::AsyncReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::Result as IoResult;
 
 #[derive(Default, PartialEq)]
 pub struct ErrorResponse {
@@ -112,14 +109,11 @@ macro_rules! read_struct_of_opt_fields {
 
 impl ErrorResponse {
     pub const TYPE_BYTE: u8 = b'E';
-
-    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncReadExt + Unpin {
-        read_msg_with_len(stream).await
-    }
 }
 
 impl MsgDecode for ErrorResponse {
+    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let mut body = Self { ..Default::default() };
         read_struct_of_opt_fields!(bytes, body,

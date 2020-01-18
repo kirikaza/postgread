@@ -6,8 +6,7 @@ extern crate structopt;
 use async_std::net::{TcpListener, TcpStream};
 use async_std::stream::StreamExt;
 use async_std::task;
-use postgread::convey::convey;
-use postgread::msg::{BackendMessage, FrontendMessage};
+use postgread::convey::{convey, Message};
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -30,25 +29,12 @@ struct Config {
     target_port: u16,
 }
 
-fn dump_backend_msg(id: usize, msg: &io::Result<Option<BackendMessage>>) {
+fn dump_msg(id: usize, msg: Message) {
     match msg {
-        Ok(None) =>
-            println!("[{}] server finished", id),
-        Ok(Some(msg)) =>
-            println!("[{}] server sent {:?}", id, msg),
-        Err(err) =>
-            println!("[{}] server behaved unexpectedly: {:?}", id, err),
-    }
-}
-
-fn dump_frontend_msg(id: usize, msg: &io::Result<Option<FrontendMessage>>) {
-    match msg {
-        Ok(None) =>
-            println!("[{}] client finished", id),
-        Ok(Some(msg)) =>
-            println!("[{}] client sent {:?}", id, msg),
-        Err(err) =>
-            println!("[{}] client behaved unexpectedly: {:?}", id, err),
+        Message::Backend(backend_msg) =>
+            println!("[{}] server sent {:?}", id, backend_msg),
+        Message::Frontend(frontend_msg) =>
+            println!("[{}] client sent {:?}", id, frontend_msg),
     }
 }
 
@@ -61,10 +47,8 @@ async fn handle_client(config: Config, id: usize, client: TcpStream) -> io::Resu
         match TcpStream::connect(&server_endpoint).await {
             Ok(server) => {
                 println!("[{}] connected to target server {}", id, server.local_addr().unwrap());
-                convey(client, server,
-                    move |msg| dump_frontend_msg(id, msg),
-                    move |msg| dump_backend_msg(id, msg),
-                )
+                let result = convey(client, server, |msg| dump_msg(id, msg), ).await;
+                println!("[{}] convey result is {:?}", id, result);
             },
             Err(err) => {
                 println!("[{}] could not connect to target host: {:?}", id, err);

@@ -1,8 +1,5 @@
 use crate::msg::util::decode::*;
-use crate::msg::util::read::*;
-use ::futures::io::AsyncReadExt;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::Result as IoResult;
 
 #[derive(Debug, PartialEq)]
 pub enum Initial {
@@ -23,14 +20,9 @@ pub struct Startup {
     params: Vec<StartupParam>,
 }
 
-impl Initial {
-    pub async fn read<R>(stream: &mut R) -> IoResult<Option<Self>>
-    where R: AsyncReadExt + Unpin {
-        read_msg_with_len_unless_eof(stream).await
-    }
-}
-
 impl MsgDecode for Initial {
+    const TYPE_BYTE_OPT: Option<u8> = None;
+
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         match Version::decode(bytes)? {
             Version { major: 1234, minor: 5678 } => {

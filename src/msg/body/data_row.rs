@@ -1,9 +1,6 @@
 use crate::msg::util::decode::{*, Problem::*};
-use crate::msg::util::read::*;
-use ::futures::io::AsyncReadExt;
 use ::hex;
 use ::std::fmt::{self, Debug, Formatter};
-use ::std::io::Result as IoResult;
 
 #[derive(Debug, PartialEq)]
 pub struct DataRow {
@@ -27,14 +24,11 @@ impl Debug for Column {
 
 impl DataRow {
     pub const TYPE_BYTE: u8 = b'D';
-
-    pub async fn read<R>(stream: &mut R) -> IoResult<Self>
-    where R: AsyncReadExt + Unpin {
-        read_msg_with_len(stream).await
-    }
 }
 
 impl MsgDecode for DataRow {
+    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let count = bytes.take_u16()?;
         let mut columns = Vec::with_capacity(count as usize);
