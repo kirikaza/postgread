@@ -102,7 +102,14 @@ macro_rules! read_frontend_through {
 }
 
 enum State {
+    Initial,
+    Startup,
+    Authenticated,
+    GotAllBackendParams,
     ReadyForQuery,
+    GotQuery,
+    NextDataRow,
+    NoMoreResponses,
     Final,
 }
 
@@ -114,21 +121,35 @@ where
 {
     async fn go(self: &mut Self) -> ConveyResult<()> {
         use State::*;
-        let mut state = self.wait_initial().await?;
+        let mut state = Initial;
         loop {
-            match state {
+            state = match state {
+                Initial =>
+                    self.wait_initial().await,
+                Startup =>
+                    self.continue_startup().await,
+                Authenticated =>
+                    self.get_backend_param().await,
+                GotAllBackendParams =>
+                    self.finish_startup().await,
                 ReadyForQuery =>
-                    state = self.wait_query().await?,
+                    self.get_query().await,
+                GotQuery =>
+                    self.get_query_response().await,
+                NextDataRow =>
+                    self.get_data_row().await,
+                NoMoreResponses =>
+                    self.finish_query_responses().await,
                 Final =>
                     return Ok(())
-            }
+            }?
         }
     }
 
     async fn wait_initial(self: &mut Self) -> ConveyResult<State> {
         match read_frontend_through!(<Initial>, self) {
             Initial::Startup(_) =>
-                self.continue_startup().await,
+                Ok(State::Startup),
             Initial::Cancel(_) =>
                 Err(Todo("Cancel".into())),
             Initial::SSL =>
@@ -154,30 +175,32 @@ where
 
     async fn process_authentication(self: &mut Self, authentication: Authentication) -> ConveyResult<State> {
         match authentication {
-            Authentication::Ok => self.finish_startup().await,
+            Authentication::Ok => Ok(State::Authenticated),
             _ => Err(Todo("Authentication::TYPE_BYTE != Ok".into())),
         }
     }
 
-    async fn finish_startup(self: &mut Self) -> ConveyResult<State> {
-        loop {
-            match self.read_backend_u8().await? {
-                ParameterStatus::TYPE_BYTE => {
-                    read_backend_through!(<ParameterStatus>, self);
-                },
-                BackendKeyData::TYPE_BYTE => {
-                    read_backend_through!(<BackendKeyData>, self);
-                    break;
-                }
-                ErrorResponse::TYPE_BYTE => {
-                    read_backend_through!(<ErrorResponse>, self);
-                    return Ok(State::Final);
-                }
-                type_byte => {
-                    return Err(UnexpectedType(type_byte, "finish_startup/1".to_owned()));
-                },
+    async fn get_backend_param(self: &mut Self) -> ConveyResult<State> {
+        match self.read_backend_u8().await? {
+            ParameterStatus::TYPE_BYTE => {
+                read_backend_through!(<ParameterStatus>, self);
+                Ok(State::Authenticated)
+            },
+            BackendKeyData::TYPE_BYTE => {
+                read_backend_through!(<BackendKeyData>, self);
+                Ok(State::GotAllBackendParams)
             }
+            ErrorResponse::TYPE_BYTE => {
+                read_backend_through!(<ErrorResponse>, self);
+                Ok(State::Final)
+            }
+            type_byte => {
+                Err(UnexpectedType(type_byte, "get_backend_param".to_owned()))
+            },
         }
+    }
+
+    async fn finish_startup(self: &mut Self) -> ConveyResult<State> {
         match self.read_backend_u8().await? {
             ReadyForQuery::TYPE_BYTE => {
                 read_backend_through!(<ReadyForQuery>, self);
@@ -188,87 +211,84 @@ where
                 Ok(State::Final)
             }
             type_byte => {
-                Err(UnexpectedType(type_byte, "finish_startup/2".to_owned()))
+                Err(UnexpectedType(type_byte, "finish_startup".to_owned()))
             },
         }
     }
 
-    async fn wait_query(self: &mut Self) -> ConveyResult<State> {
+    async fn get_query(self: &mut Self) -> ConveyResult<State> {
         match self.read_frontend_u8().await? {
             Query::TYPE_BYTE => {
                 read_frontend_through!(<Query>, self);
+                Ok(State::GotQuery)
             },
             Terminate::TYPE_BYTE => {
                 read_frontend_through!(<Terminate>, self);
-                return Ok(State::Final)
+                Ok(State::Final)
             },
             type_byte => {
-                return Err(UnexpectedType(type_byte, "wait_query_and_responses/1".to_owned()))
+                Err(UnexpectedType(type_byte, "get_query".to_owned()))
             },
-        };
-        self.wait_query_responses().await
+        }
     }
 
-    async fn wait_query_responses(self: &mut Self) -> ConveyResult<State> {
-        enum QueryState {
-            NextResponse,
-            NextDataRow,
-            NoMoreResponses,
+    async fn get_query_response(self: &mut Self) -> Result<State, ConveyError> {
+        match self.read_backend_u8().await? {
+            CommandComplete::TYPE_BYTE => {
+                read_backend_through!(<CommandComplete>, self);
+                Ok(State::GotQuery)
+            },
+            ReadyForQuery::TYPE_BYTE => {
+                read_backend_through!(<ReadyForQuery>, self);
+                Ok(State::ReadyForQuery)
+            },
+            RowDescription::TYPE_BYTE => {
+                read_backend_through!(<RowDescription>, self);
+                Ok(State::NextDataRow)
+            },
+            ErrorResponse::TYPE_BYTE => {
+                read_backend_through!(<ErrorResponse>, self);
+                Ok(State::NoMoreResponses)
+            },
+            type_byte => {
+                Err(UnexpectedType(type_byte, "get_query_response".to_owned()))
+            },
         }
-        use QueryState::*;
-        let mut query_state = NextResponse;
-        loop {
-            match query_state {
-                NextResponse => match self.read_backend_u8().await? {
-                    CommandComplete::TYPE_BYTE => {
-                        read_backend_through!(<CommandComplete>, self);
-                    },
-                    ReadyForQuery::TYPE_BYTE => {
-                        read_backend_through!(<ReadyForQuery>, self);
-                        return Ok(State::ReadyForQuery)
-                    },
-                    RowDescription::TYPE_BYTE => {
-                        read_backend_through!(<RowDescription>, self);
-                        query_state = NextDataRow;
-                    },
-                    ErrorResponse::TYPE_BYTE => {
-                        read_backend_through!(<ErrorResponse>, self);
-                        query_state = NoMoreResponses;
-                    },
-                    type_byte => {
-                        return Err(UnexpectedType(type_byte, "wait_query_and_responses/2".to_owned()))
-                    },
-                }
-                NextDataRow => match self.read_backend_u8().await? {
-                    CommandComplete::TYPE_BYTE => {
-                        read_backend_through!(<CommandComplete>, self);
-                        query_state = NextResponse;
-                    },
-                    DataRow::TYPE_BYTE => {
-                        read_backend_through!(<DataRow>, self);
-                    },
-                    ErrorResponse::TYPE_BYTE => {
-                        read_backend_through!(<ErrorResponse>, self);
-                        query_state = NoMoreResponses;
-                    },
-                    type_byte => {
-                        return Err(UnexpectedType(type_byte, "wait_query_and_responses/3".to_owned()))
-                    },
-                }
-                NoMoreResponses => match self.read_backend_u8().await? {
-                    ReadyForQuery::TYPE_BYTE => {
-                        read_backend_through!(<ReadyForQuery>, self);
-                        return Ok(State::ReadyForQuery)
-                    },
-                    ErrorResponse::TYPE_BYTE => {
-                        read_backend_through!(<ErrorResponse>, self);
-                        query_state = NoMoreResponses;
-                    },
-                    type_byte => {
-                        return Err(UnexpectedType(type_byte, "wait_query_and_responses/4".to_owned()))
-                    },
-                }
-            };
+    }
+
+    async fn get_data_row(self: &mut Self) -> ConveyResult<State> {
+        match self.read_backend_u8().await? {
+            CommandComplete::TYPE_BYTE => {
+                read_backend_through!(<CommandComplete>, self);
+                Ok(State::GotQuery)
+            },
+            DataRow::TYPE_BYTE => {
+                read_backend_through!(<DataRow>, self);
+                Ok(State::NextDataRow)
+            },
+            ErrorResponse::TYPE_BYTE => {
+                read_backend_through!(<ErrorResponse>, self);
+                Ok(State::NoMoreResponses)
+            },
+            type_byte => {
+                Err(UnexpectedType(type_byte, "get_data_row".to_owned()))
+            },
+        }
+    }
+
+    async fn finish_query_responses(self: &mut Self) -> ConveyResult<State> {
+        match self.read_backend_u8().await? {
+            ReadyForQuery::TYPE_BYTE => {
+                read_backend_through!(<ReadyForQuery>, self);
+                Ok(State::ReadyForQuery)
+            },
+            ErrorResponse::TYPE_BYTE => {
+                read_backend_through!(<ErrorResponse>, self);
+                Ok(State::NoMoreResponses)
+            },
+            type_byte => {
+                Err(UnexpectedType(type_byte, "finish_query_responses".to_owned()))
+            },
         }
     }
 
