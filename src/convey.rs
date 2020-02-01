@@ -1,11 +1,12 @@
 use crate::async_std_compat::compat;
 use crate::msg::body::*;
-use crate::msg::util::async_io::*;
+use crate::msg::util::async_io;
 use crate::msg::util::decode::{MsgDecode, Problem as DecodeProblem};
 use crate::msg::util::encode::{Problem as EncodeProblem};
 use crate::msg::util::read::*;
 
 use ::async_std::net::TcpStream;
+use ::futures::future::{self, Either, FutureExt};
 use ::futures::io::{AsyncReadExt, AsyncWriteExt};
 use ::std::io::{Error as IoError};
 
@@ -102,7 +103,7 @@ macro_rules! read_frontend_through {
 }
 
 enum State {
-    Initial,
+//    Initial,
     Startup,
     Authenticated,
     GotAllBackendParams,
@@ -113,128 +114,133 @@ enum State {
     Final,
 }
 
+enum Side<T> {
+    Backend(T),
+    Frontend(T),
+}
+
 impl<'a, F, B, C> Conveyor<'a, F, B, C>
 where
-    F: AsyncReadExt + AsyncWriteExt + Unpin,
-    B: AsyncReadExt + AsyncWriteExt + Unpin,
+    F: AsyncReadExt + AsyncWriteExt + Send + Unpin,
+    B: AsyncReadExt + AsyncWriteExt + Send + Unpin,
     C: Fn(Message) -> (),
 {
+    #[allow(clippy::cognitive_complexity)]
     async fn go(self: &mut Self) -> ConveyResult<()> {
-        let mut state = State::Initial;
+        let mut state = match read_frontend_through!(<Initial>, self) {
+            Initial::Startup(_) =>
+                State::Startup,
+            Initial::Cancel(_) =>
+                return Err(Todo("Cancel".into())),
+            Initial::SSL =>
+                return Err(Todo("SSL".into())),
+        };
         loop {
             state = match state {
-                State::Initial => match read_frontend_through!(<Initial>, self) {
-                    Initial::Startup(_) =>
-                        Ok(State::Startup),
-                    Initial::Cancel(_) =>
-                        Err(Todo("Cancel".into())),
-                    Initial::SSL =>
-                        Err(Todo("SSL".into())),
-                }
-                State::Startup => match self.read_backend_u8().await? {
-                    Authentication::TYPE_BYTE => {
+                State::Startup => match self.read_u8().await? {
+                    Side::Backend(Authentication::TYPE_BYTE) => {
                         let authentication = read_backend_through!(<Authentication>, self);
                         self.process_authentication(authentication).await
                     },
-                    ErrorResponse::TYPE_BYTE => {
+                    Side::Backend(ErrorResponse::TYPE_BYTE) => {
                         read_backend_through!(<ErrorResponse>, self);
                         Ok(State::Final)
                     }
-                    type_byte => {
+                    Side::Backend(type_byte) | Side::Frontend(type_byte) => {
                         Err(UnexpectedType(type_byte, "continue_startup".to_owned()))
                     },
                 },
-                State::Authenticated => match self.read_backend_u8().await? {
-                    ParameterStatus::TYPE_BYTE => {
+                State::Authenticated => match self.read_u8().await? {
+                    Side::Backend(ParameterStatus::TYPE_BYTE) => {
                         read_backend_through!(<ParameterStatus>, self);
                         Ok(State::Authenticated)
                     },
-                    BackendKeyData::TYPE_BYTE => {
+                    Side::Backend(BackendKeyData::TYPE_BYTE) => {
                         read_backend_through!(<BackendKeyData>, self);
                         Ok(State::GotAllBackendParams)
                     }
-                    ErrorResponse::TYPE_BYTE => {
+                    Side::Backend(ErrorResponse::TYPE_BYTE) => {
                         read_backend_through!(<ErrorResponse>, self);
                         Ok(State::Final)
                     }
-                    type_byte => {
+                    Side::Backend(type_byte) | Side::Frontend(type_byte) => {
                         Err(UnexpectedType(type_byte, "get_backend_param".to_owned()))
                     },
                 },
-                State::GotAllBackendParams => match self.read_backend_u8().await? {
-                    ReadyForQuery::TYPE_BYTE => {
+                State::GotAllBackendParams => match self.read_u8().await? {
+                    Side::Backend(ReadyForQuery::TYPE_BYTE) => {
                         read_backend_through!(<ReadyForQuery>, self);
                         Ok(State::ReadyForQuery)
                     },
-                    ErrorResponse::TYPE_BYTE => {
+                    Side::Backend(ErrorResponse::TYPE_BYTE) => {
                         read_backend_through!(<ErrorResponse>, self);
                         Ok(State::Final)
                     }
-                    type_byte => {
+                    Side::Backend(type_byte) | Side::Frontend(type_byte) => {
                         Err(UnexpectedType(type_byte, "finish_startup".to_owned()))
                     },
                 },
-                State::ReadyForQuery => match self.read_frontend_u8().await? {
-                    Query::TYPE_BYTE => {
+                State::ReadyForQuery => match self.read_u8().await? {
+                    Side::Frontend(Query::TYPE_BYTE) => {
                         read_frontend_through!(<Query>, self);
                         Ok(State::GotQuery)
                     },
-                    Terminate::TYPE_BYTE => {
+                    Side::Frontend(Terminate::TYPE_BYTE) => {
                         read_frontend_through!(<Terminate>, self);
                         Ok(State::Final)
                     },
-                    type_byte => {
+                    Side::Backend(type_byte) | Side::Frontend(type_byte) => {
                         Err(UnexpectedType(type_byte, "get_query".to_owned()))
                     },
                 },
-                State::GotQuery => match self.read_backend_u8().await? {
-                    CommandComplete::TYPE_BYTE => {
+                State::GotQuery => match self.read_u8().await? {
+                    Side::Backend(CommandComplete::TYPE_BYTE) => {
                         read_backend_through!(<CommandComplete>, self);
                         Ok(State::GotQuery)
                     },
-                    ReadyForQuery::TYPE_BYTE => {
+                    Side::Backend(ReadyForQuery::TYPE_BYTE) => {
                         read_backend_through!(<ReadyForQuery>, self);
                         Ok(State::ReadyForQuery)
                     },
-                    RowDescription::TYPE_BYTE => {
+                    Side::Backend(RowDescription::TYPE_BYTE) => {
                         read_backend_through!(<RowDescription>, self);
                         Ok(State::NextDataRow)
                     },
-                    ErrorResponse::TYPE_BYTE => {
+                    Side::Backend(ErrorResponse::TYPE_BYTE) => {
                         read_backend_through!(<ErrorResponse>, self);
                         Ok(State::NoMoreResponses)
                     },
-                    type_byte => {
+                    Side::Backend(type_byte) | Side::Frontend(type_byte) => {
                         Err(UnexpectedType(type_byte, "get_query_response".to_owned()))
                     },
                 },
-                State::NextDataRow => match self.read_backend_u8().await? {
-                    CommandComplete::TYPE_BYTE => {
+                State::NextDataRow => match self.read_u8().await? {
+                    Side::Backend(CommandComplete::TYPE_BYTE) => {
                         read_backend_through!(<CommandComplete>, self);
                         Ok(State::GotQuery)
                     },
-                    DataRow::TYPE_BYTE => {
+                    Side::Backend(DataRow::TYPE_BYTE) => {
                         read_backend_through!(<DataRow>, self);
                         Ok(State::NextDataRow)
                     },
-                    ErrorResponse::TYPE_BYTE => {
+                    Side::Backend(ErrorResponse::TYPE_BYTE) => {
                         read_backend_through!(<ErrorResponse>, self);
                         Ok(State::NoMoreResponses)
                     },
-                    type_byte => {
+                    Side::Backend(type_byte) | Side::Frontend(type_byte) => {
                         Err(UnexpectedType(type_byte, "get_data_row".to_owned()))
                     },
                 },
-                State::NoMoreResponses => match self.read_backend_u8().await? {
-                    ReadyForQuery::TYPE_BYTE => {
+                State::NoMoreResponses => match self.read_u8().await? {
+                    Side::Backend(ReadyForQuery::TYPE_BYTE) => {
                         read_backend_through!(<ReadyForQuery>, self);
                         Ok(State::ReadyForQuery)
                     },
-                    ErrorResponse::TYPE_BYTE => {
+                    Side::Backend(ErrorResponse::TYPE_BYTE) => {
                         read_backend_through!(<ErrorResponse>, self);
                         Ok(State::NoMoreResponses)
                     },
-                    type_byte => {
+                    Side::Backend(type_byte) | Side::Frontend(type_byte) => {
                         Err(UnexpectedType(type_byte, "finish_query_responses".to_owned()))
                     },
                 },
@@ -289,12 +295,15 @@ where
         Ok((bytes, message))
     }
 
-    async fn read_backend_u8(self: &mut Self) -> ConveyResult<u8> {
-        read_u8(self.backend).await.map_err(IoError)
-    }
-
-    async fn read_frontend_u8(self: &mut Self) -> ConveyResult<u8> {
-        read_u8(self.frontend).await.map_err(IoError)
+    async fn read_u8(self: &mut Self) -> ConveyResult<Side<u8>> {
+        let either = future::select(
+            async_io::read_u8(self.backend).boxed(),
+            async_io::read_u8(self.frontend).boxed(),
+        ).await;
+        match either {
+            Either::Left((backend, _frontend)) => backend.map(Side::Backend),
+            Either::Right((frontend, _backend)) => frontend.map(Side::Frontend),
+        }.map_err(IoError)
     }
 
     async fn write_backend(self: &mut Self, bytes: &[u8]) -> ConveyResult<()> {
