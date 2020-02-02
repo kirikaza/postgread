@@ -17,10 +17,29 @@ pub enum ConveyError {
     IoError(IoError),
     LeftUndecoded(usize),
     Todo(String),
-    UnexpectedType(u8, String),
+    UnexpectedType(TypeByte, State),
+    UnknownType(TypeByte),
 }
 
 pub type ConveyResult<T> = Result<T, ConveyError>;
+
+#[derive(Debug)]
+pub enum TypeByte {
+    Backend(u8),
+    Frontend(u8),
+}
+
+#[derive(Debug)]
+pub enum State {
+    Startup,
+    Authenticated,
+    GotAllBackendParams,
+    ReadyForQuery,
+    GotQuery,
+    NextDataRow,
+    NoMoreResponses,
+    Final,
+}
 
 #[derive(Debug)]
 pub enum Message<'a> {
@@ -102,23 +121,6 @@ macro_rules! read_frontend_through {
     }
 }
 
-#[derive(Debug)]
-enum State {
-    Startup,
-    Authenticated,
-    GotAllBackendParams,
-    ReadyForQuery,
-    GotQuery,
-    NextDataRow,
-    NoMoreResponses,
-    Final,
-}
-
-enum Side<T> {
-    Backend(T),
-    Frontend(T),
-}
-
 impl<'a, F, B, C> Conveyor<'a, F, B, C>
 where
     F: AsyncReadExt + AsyncWriteExt + Send + Unpin,
@@ -135,7 +137,7 @@ where
             Initial::SSL =>
                 return Err(Todo("SSL".into())),
         };
-        use Side::*;
+        use TypeByte::*;
         loop {
             let type_byte = self.read_u8().await?;
             state = match type_byte {
@@ -144,14 +146,14 @@ where
                         let authentication = read_backend_through!(<Authentication>, self);
                         self.process_authentication(authentication).await
                     },
-                    _ => Err(unexpected_type(type_byte, state)),
+                    _ => Err(UnexpectedType(type_byte, state)),
                 }
                 Backend(BackendKeyData::TYPE_BYTE) => match state {
                     State::Authenticated => {
                         read_backend_through!(<BackendKeyData>, self);
                         Ok(State::GotAllBackendParams)
                     },
-                    _ => Err(unexpected_type(type_byte, state)),
+                    _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Backend(CommandComplete::TYPE_BYTE) => match state {
                     State::GotQuery => {
@@ -162,14 +164,14 @@ where
                         read_backend_through!(<CommandComplete>, self);
                         Ok(State::GotQuery)
                     },
-                    _ => Err(unexpected_type(type_byte, state)),
+                    _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Backend(DataRow::TYPE_BYTE) => match state {
                     State::NextDataRow => {
                         read_backend_through!(<DataRow>, self);
                         Ok(State::NextDataRow)
                     },
-                    _ => Err(unexpected_type(type_byte, state)),
+                    _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Backend(ErrorResponse::TYPE_BYTE) => {
                     read_backend_through!(<ErrorResponse>, self);
@@ -187,14 +189,14 @@ where
                         read_backend_through!(<ParameterStatus>, self);
                         Ok(State::Authenticated)
                     },
-                    _ => Err(unexpected_type(type_byte, state)),
+                    _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Frontend(Query::TYPE_BYTE) => match state {
                     State::ReadyForQuery => {
                         read_frontend_through!(<Query>, self);
                         Ok(State::GotQuery)
                     },
-                    _ => Err(unexpected_type(type_byte, state)),
+                    _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Backend(ReadyForQuery::TYPE_BYTE) => match state {
                     State::GotAllBackendParams => {
@@ -209,23 +211,23 @@ where
                         read_backend_through!(<ReadyForQuery>, self);
                         Ok(State::ReadyForQuery)
                     },
-                    _ => Err(unexpected_type(type_byte, state)),
+                    _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Backend(RowDescription::TYPE_BYTE) => match state {
                     State::GotQuery => {
                         read_backend_through!(<RowDescription>, self);
                         Ok(State::NextDataRow)
                     },
-                    _ => Err(unexpected_type(type_byte, state)),
+                    _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Frontend(Terminate::TYPE_BYTE) => match state {
                     State::ReadyForQuery => {
                         read_frontend_through!(<Terminate>, self);
                         Ok(State::Final)
                     },
-                    _ => Err(unexpected_type(type_byte, state)),
+                    _ => Err(UnexpectedType(type_byte, state)),
                 },
-                _ => Err(unexpected_type(type_byte, state)),
+                _ => Err(UnknownType(type_byte)),
             }?
         }
     }
@@ -275,15 +277,15 @@ where
         Ok((bytes, message))
     }
 
-    async fn read_u8(self: &mut Self) -> ConveyResult<Side<u8>> {
+    async fn read_u8(self: &mut Self) -> ConveyResult<TypeByte> {
         let either = future::select(
             async_io::read_u8(self.backend).boxed(),
             async_io::read_u8(self.frontend).boxed(),
         ).await;
         // TODO: if both futures are ready, do we loose a result of the second one?
         match either {
-            Either::Left((backend, _frontend)) => backend.map(Side::Backend),
-            Either::Right((frontend, _backend)) => frontend.map(Side::Frontend),
+            Either::Left((backend, _frontend)) => backend.map(TypeByte::Backend),
+            Either::Right((frontend, _backend)) => frontend.map(TypeByte::Frontend),
         }.map_err(IoError)
     }
 
@@ -295,11 +297,4 @@ where
         self.frontend.write_all(bytes).await.map_err(IoError)
     }
 
-}
-
-fn unexpected_type(type_byte: Side<u8>, state: State) -> ConveyError {
-    match type_byte {
-        Side::Backend(type_byte) => UnexpectedType(type_byte, format!("from backend in state {:?}", state)),
-        Side::Frontend(type_byte) => UnexpectedType(type_byte, format!("from frontend in state {:?}", state)),
-    }
 }
