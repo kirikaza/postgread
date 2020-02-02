@@ -38,7 +38,6 @@ pub enum State {
     GotQuery,
     NextDataRow,
     NoMoreResponses,
-    Final,
 }
 
 #[derive(Debug)]
@@ -181,7 +180,7 @@ where
                         State::NoMoreResponses => {
                             Ok(State::NoMoreResponses)
                         },
-                        _ => Ok(State::Final)
+                        _ => return Ok(())
                     }
                 }
                 Backend(ParameterStatus::TYPE_BYTE) => match state {
@@ -223,7 +222,7 @@ where
                 Frontend(Terminate::TYPE_BYTE) => match state {
                     State::ReadyForQuery => {
                         read_frontend_through!(<Terminate>, self);
-                        Ok(State::Final)
+                        return Ok(())
                     },
                     _ => Err(UnexpectedType(type_byte, state)),
                 },
