@@ -155,10 +155,7 @@ where
                     _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Backend(CommandComplete::TYPE_BYTE) => match state {
-                    State::GotQuery => {
-                        read_backend_through!(<CommandComplete>, self);
-                        Ok(State::GotQuery)
-                    },
+                    State::GotQuery |
                     State::NextDataRow => {
                         read_backend_through!(<CommandComplete>, self);
                         Ok(State::GotQuery)
@@ -198,14 +195,8 @@ where
                     _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Backend(ReadyForQuery::TYPE_BYTE) => match state {
-                    State::GotAllBackendParams => {
-                        read_backend_through!(<ReadyForQuery>, self);
-                        Ok(State::ReadyForQuery)
-                    },
-                    State::GotQuery => {
-                        read_backend_through!(<ReadyForQuery>, self);
-                        Ok(State::ReadyForQuery)
-                    },
+                    State::GotAllBackendParams |
+                    State::GotQuery |
                     State::NoMoreResponses => {
                         read_backend_through!(<ReadyForQuery>, self);
                         Ok(State::ReadyForQuery)
