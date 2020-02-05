@@ -36,7 +36,9 @@ pub enum State {
     GotAllBackendParams,
     ReadyForQuery,
     GotQuery,
-    NextDataRow,
+    GotEmptyQueryResponse,
+    CommandComplete,
+    QueryResponseWithRows,
     QueryAbortedByError,
 }
 
@@ -52,6 +54,7 @@ pub enum BackendMsg<'a> {
     BackendKeyData(&'a BackendKeyData),
     CommandComplete(&'a CommandComplete),
     DataRow(&'a DataRow),
+    EmptyQueryResponse(&'a EmptyQueryResponse),
     ErrorResponse(&'a ErrorResponse),
     ParameterStatus(&'a ParameterStatus),
     ReadyForQuery(&'a ReadyForQuery),
@@ -156,24 +159,36 @@ where
                 },
                 Backend(CommandComplete::TYPE_BYTE) => match state {
                     State::GotQuery |
-                    State::NextDataRow => {
+                    State::CommandComplete |
+                    State::QueryResponseWithRows => {
                         read_backend_through!(<CommandComplete>, self);
-                        Ok(State::GotQuery)
+                        Ok(State::CommandComplete)
                     },
                     _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Backend(DataRow::TYPE_BYTE) => match state {
-                    State::NextDataRow => {
+                    State::QueryResponseWithRows => {
                         read_backend_through!(<DataRow>, self);
-                        Ok(State::NextDataRow)
+                        Ok(State::QueryResponseWithRows)
                     },
                     _ => Err(UnexpectedType(type_byte, state)),
+                },
+                Backend(EmptyQueryResponse::TYPE_BYTE) => {
+                    match state {
+                        State::GotQuery => {
+                            read_backend_through!(<EmptyQueryResponse>, self);
+                            Ok(State::GotEmptyQueryResponse)
+                        },
+                        _ => Err(UnexpectedType(type_byte, state)),
+                    }
                 },
                 Backend(ErrorResponse::TYPE_BYTE) => {
                     read_backend_through!(<ErrorResponse>, self);
                     match state {
                         State::GotQuery |
-                        State::NextDataRow |
+                        State::GotEmptyQueryResponse |
+                        State::CommandComplete |
+                        State::QueryResponseWithRows |
                         State::QueryAbortedByError => {
                             Ok(State::QueryAbortedByError)
                         },
@@ -196,7 +211,8 @@ where
                 },
                 Backend(ReadyForQuery::TYPE_BYTE) => match state {
                     State::GotAllBackendParams |
-                    State::GotQuery |
+                    State::GotEmptyQueryResponse |
+                    State::CommandComplete |
                     State::QueryAbortedByError => {
                         read_backend_through!(<ReadyForQuery>, self);
                         Ok(State::ReadyForQuery)
@@ -204,9 +220,10 @@ where
                     _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Backend(RowDescription::TYPE_BYTE) => match state {
-                    State::GotQuery => {
+                    State::GotQuery |
+                    State::CommandComplete => {
                         read_backend_through!(<RowDescription>, self);
-                        Ok(State::NextDataRow)
+                        Ok(State::QueryResponseWithRows)
                     },
                     _ => Err(UnexpectedType(type_byte, state)),
                 },
