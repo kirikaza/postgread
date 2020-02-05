@@ -56,6 +56,7 @@ pub enum BackendMsg<'a> {
     DataRow(&'a DataRow),
     EmptyQueryResponse(&'a EmptyQueryResponse),
     ErrorResponse(&'a ErrorResponse),
+    NoticeResponse(&'a NoticeResponse),
     ParameterStatus(&'a ParameterStatus),
     ReadyForQuery(&'a ReadyForQuery),
     RowDescription(&'a RowDescription),
@@ -194,7 +195,11 @@ where
                         },
                         _ => return Ok(())
                     }
-                }
+                },
+                Backend(NoticeResponse::TYPE_BYTE) => {
+                   read_backend_through!(<NoticeResponse>, self);
+                    Ok(state)
+                },
                 Backend(ParameterStatus::TYPE_BYTE) => match state {
                     State::Authenticated => {
                         read_backend_through!(<ParameterStatus>, self);
