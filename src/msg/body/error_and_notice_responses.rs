@@ -1,8 +1,38 @@
 use crate::msg::util::decode::{*, Problem::*};
 use ::std::fmt::{self, Debug, Formatter};
 
+#[derive(Debug, PartialEq)]
+pub struct ErrorResponse(ErrorOrNoticeFields);
+
+#[derive(Debug, PartialEq)]
+pub struct NoticeResponse(ErrorOrNoticeFields);
+
+impl ErrorResponse {
+    pub const TYPE_BYTE: u8 = b'E';
+}
+
+impl MsgDecode for ErrorResponse {
+    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+        ErrorOrNoticeFields::decode(bytes).map(Self)
+    }
+}
+
+impl NoticeResponse {
+    pub const TYPE_BYTE: u8 = b'N';
+}
+
+impl MsgDecode for NoticeResponse {
+    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+
+    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+        ErrorOrNoticeFields::decode(bytes).map(Self)
+    }
+}
+
 #[derive(Default, PartialEq)]
-pub struct ErrorResponse {
+pub struct ErrorOrNoticeFields {
     // https://www.postgresql.org/docs/current/protocol-error-fields.html
     localized_severity: Option<Vec<u8>>,
     severity: Option<Vec<u8>>,
@@ -54,12 +84,12 @@ macro_rules! fmt_struct_of_opt_fields {
     };
 }
 
-impl Debug for ErrorResponse {
+impl Debug for ErrorOrNoticeFields {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         fmt_struct_of_opt_fields!(
             self,
             formatter,
-            ErrorResponse,
+            ErrorOrNoticeFields,
             localized_severity,
             severity,
             code,
@@ -107,14 +137,8 @@ macro_rules! read_struct_of_opt_fields {
     };
 }
 
-impl ErrorResponse {
-    pub const TYPE_BYTE: u8 = b'E';
-}
-
-impl MsgDecode for ErrorResponse {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
-
-    fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
+impl ErrorOrNoticeFields {
+    fn decode(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let mut body = Self { ..Default::default() };
         read_struct_of_opt_fields!(bytes, body,
             b'S' => localized_severity,
@@ -142,13 +166,14 @@ impl MsgDecode for ErrorResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{ErrorResponse};
+    use super::{ErrorResponse, ErrorOrNoticeFields, NoticeResponse};
     use crate::msg::util::test::*;
 
     #[test]
     fn no_fields() {
         let bytes: &[u8] = &[0];  // zero instead of field type means "no fields more"
-        assert_decode_ok(ErrorResponse { .. Default::default() }, bytes);
+        assert_decode_ok(ErrorResponse(ErrorOrNoticeFields { .. Default::default() }), bytes);
+        assert_decode_ok(NoticeResponse(ErrorOrNoticeFields { .. Default::default() }), bytes);
     }
 
     #[test]
@@ -174,28 +199,27 @@ mod tests {
         bytes.extend_from_slice(b"Ryz\0");
         bytes.extend_from_slice(&[0]);
         let bytes = bytes.as_slice();
-        assert_decode_ok(
-            ErrorResponse {
-                localized_severity: Some(Vec::from("эй")),
-                severity: Some(Vec::from("ab")),
-                code: Some(Vec::from("12")),
-                message: Some(Vec::from("cd")),
-                detail: Some(Vec::from("ef")),
-                hint: Some(Vec::from("gh")),
-                position: Some(Vec::from("34")),
-                internal_position: Some(Vec::from("56")),
-                internal_query: Some(Vec::from("ij")),
-                where_: Some(Vec::from("kl")),
-                schema: Some(Vec::from("mn")),
-                table: Some(Vec::from("op")),
-                column: Some(Vec::from("qr")),
-                data_type: Some(Vec::from("st")),
-                constraint: Some(Vec::from("uv")),
-                file: Some(Vec::from("wx")),
-                line: Some(Vec::from("78")),
-                routine: Some(Vec::from("yz")),
-            },
-            bytes,
-        );
+        let expected_fields = || ErrorOrNoticeFields {
+            localized_severity: Some(Vec::from("эй")),
+            severity: Some(Vec::from("ab")),
+            code: Some(Vec::from("12")),
+            message: Some(Vec::from("cd")),
+            detail: Some(Vec::from("ef")),
+            hint: Some(Vec::from("gh")),
+            position: Some(Vec::from("34")),
+            internal_position: Some(Vec::from("56")),
+            internal_query: Some(Vec::from("ij")),
+            where_: Some(Vec::from("kl")),
+            schema: Some(Vec::from("mn")),
+            table: Some(Vec::from("op")),
+            column: Some(Vec::from("qr")),
+            data_type: Some(Vec::from("st")),
+            constraint: Some(Vec::from("uv")),
+            file: Some(Vec::from("wx")),
+            line: Some(Vec::from("78")),
+            routine: Some(Vec::from("yz")),
+        };
+        assert_decode_ok(ErrorResponse(expected_fields()), bytes);
+        assert_decode_ok(NoticeResponse(expected_fields()), bytes);
     }
 }
