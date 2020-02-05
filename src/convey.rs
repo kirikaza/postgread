@@ -37,7 +37,7 @@ pub enum State {
     ReadyForQuery,
     GotQuery,
     NextDataRow,
-    NoMoreResponses,
+    QueryAbortedByError,
 }
 
 #[derive(Debug)]
@@ -174,8 +174,8 @@ where
                     match state {
                         State::GotQuery |
                         State::NextDataRow |
-                        State::NoMoreResponses => {
-                            Ok(State::NoMoreResponses)
+                        State::QueryAbortedByError => {
+                            Ok(State::QueryAbortedByError)
                         },
                         _ => return Ok(())
                     }
@@ -197,7 +197,7 @@ where
                 Backend(ReadyForQuery::TYPE_BYTE) => match state {
                     State::GotAllBackendParams |
                     State::GotQuery |
-                    State::NoMoreResponses => {
+                    State::QueryAbortedByError => {
                         read_backend_through!(<ReadyForQuery>, self);
                         Ok(State::ReadyForQuery)
                     },
