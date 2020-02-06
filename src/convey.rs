@@ -136,7 +136,7 @@ where
             Initial::Startup(_) =>
                 State::Startup,
             Initial::Cancel(_) =>
-                return Err(Todo("Cancel".into())),
+                return Ok(()),
             Initial::SSL =>
                 return Err(Todo("SSL".into())),
         };
