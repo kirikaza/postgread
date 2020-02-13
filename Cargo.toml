@@ -5,9 +5,10 @@ authors = ["Kirill Kazakov <k@kirikaza.ru>"]
 edition = "2018"
 
 [dependencies]
-async-std = "1.1"
-futures-preview = { version = "=0.3.0-alpha.19", features = ["compat"] }
-futures-test-preview = { version = "=0.3.0-alpha.19" }
+native-tls = "0.2.3"
+async-native-tls = "0.3.2"
+async-std = "1.5"
+futures = "0.3.4"
 hex = "0.4"
 structopt = { version = "0.2", default-features = false }
 

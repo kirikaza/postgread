@@ -4,7 +4,7 @@ use ::std::fmt::{self, Debug, Formatter};
 #[derive(Debug, PartialEq)]
 pub enum Initial {
     Cancel(Cancel),
-    SSL,
+    TLS,
     Startup(Startup),
 }
 
@@ -31,7 +31,7 @@ impl MsgDecode for Initial {
                 Ok(Self::Cancel(Cancel { process_id, secret_key }))
             },
             Version { major: 1234, minor: 5679 } =>
-                Ok(Self::SSL),
+                Ok(Self::TLS),
             version => {
                 let params = StartupParam::decode_many(bytes)?;
                 Ok(Self::Startup(Startup { version, params }))
@@ -100,9 +100,9 @@ mod tests {
     #[test]
     fn ssl() {
         let bytes: &[u8] = &[
-            4, 210, 22, 47, // 4*256+210=1234, 22*256+47=5679, these numbers instead of version mean "SSL"
+            4, 210, 22, 47, // 4*256+210=1234, 22*256+47=5679, these numbers instead of version mean "TLS"
         ];
-        assert_decode_ok(Initial::SSL, bytes);
+        assert_decode_ok(Initial::TLS, bytes);
     }
 
     #[test]

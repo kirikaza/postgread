@@ -1,4 +1,3 @@
-use crate::async_std_compat::compat;
 use crate::msg::body::*;
 use crate::msg::util::async_io;
 use crate::msg::util::decode::{MsgDecode, Problem as DecodeProblem};
@@ -6,8 +5,10 @@ use crate::msg::util::encode::{Problem as EncodeProblem};
 use crate::msg::util::read::*;
 
 use ::async_std::net::TcpStream;
-use ::futures::future::{self, Either, FutureExt};
-use ::futures::io::{AsyncReadExt, AsyncWriteExt};
+use ::async_native_tls::{TlsAcceptor, TlsStream};
+use ::core::hint::unreachable_unchecked;
+use ::futures::future::{self, Either, Future, FutureExt};
+use ::futures::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use ::std::io::{Error as IoError};
 
 #[derive(Debug)]
@@ -15,6 +16,7 @@ pub enum ConveyError {
     DecodeError(DecodeProblem),
     EncodeError(EncodeProblem),
     IoError(IoError),
+    TlsError(TlsError),
     LeftUndecoded(usize),
     Todo(String),
     UnexpectedType(TypeByte, State),
@@ -69,24 +71,33 @@ pub enum FrontendMsg<'a> {
     Terminate(&'a Terminate),
 }
 
+#[derive(Debug)]
+pub enum TlsError {
+    HandshakeDisrupted,
+    TlsRequestedInsideTls,
+}
+
 pub async fn convey<Callback>(
     frontend: TcpStream,
     backend: TcpStream,
     callback: Callback,
+    tls_acceptor: TlsAcceptor,
 ) -> ConveyResult<()>
-where Callback: Fn(Message) -> () {
-    let mut conveyor = Conveyor {
-        frontend: &mut compat(frontend),
-        backend: &mut compat(backend),
+where Callback: Fn(Message) -> () + Send {
+    let mut conveyor = Conveyor::new(
+        frontend,
+        backend,
         callback,
-    };
+        tls_acceptor,
+    );
     conveyor.go().await
 }
 
-struct Conveyor<'a, F, B, C> {
-    frontend: &'a mut F,
-    backend: &'a mut B,
+struct Conveyor<F, B, C> {
+    frontend: StreamWrap<F, TlsStream<F>>,
+    backend: StreamWrap<B, TlsStream<B>>,
     callback: C,
+    tls_acceptor: TlsAcceptor,
 }
 
 use ConveyError::*;
@@ -124,25 +135,47 @@ macro_rules! read_frontend_through {
     }
 }
 
-impl<'a, F, B, C> Conveyor<'a, F, B, C>
+macro_rules! unwrap_stream {
+    ($wrap:expr, $func:expr) => { unwrap_stream($wrap, $func, $func) }
+}
+
+impl<'a, F, B, C> Conveyor<F, B, C>
 where
-    F: AsyncReadExt + AsyncWriteExt + Send + Unpin,
-    B: AsyncReadExt + AsyncWriteExt + Send + Unpin,
-    C: Fn(Message) -> (),
+    F: AsyncRead + AsyncWrite + Send + Unpin,
+    B: AsyncRead + AsyncWrite + Send + Unpin,
+    C: Fn(Message) -> () + Send,
 {
+    fn new(
+        frontend: F,
+        backend: B,
+        callback: C,
+        tls_acceptor: TlsAcceptor,
+    ) -> Self {
+        Self {
+            frontend: StreamWrap::Plain(frontend),
+            backend: StreamWrap::Plain(backend),
+            callback,
+            tls_acceptor,
+        }
+    }
+
     #[allow(clippy::cognitive_complexity)]
     async fn go(self: &mut Self) -> ConveyResult<()> {
         let mut state = match read_frontend_through!(<Initial>, self) {
-            Initial::Startup(_) =>
-                State::Startup,
-            Initial::Cancel(_) =>
-                return Ok(()),
-            Initial::SSL =>
-                return Err(Todo("SSL".into())),
+            Initial::Startup(_) => State::Startup,
+            Initial::Cancel(_) => return Ok(()),
+            Initial::TLS => {
+                self.process_tls_request().await?;
+                match read_frontend_through!(<Initial>, self) {
+                    Initial::Startup(_) => State::Startup,
+                    Initial::Cancel(_) => return Ok(()),
+                    _ => return Err(TlsError(TlsError::TlsRequestedInsideTls))
+                }
+            }
         };
         use TypeByte::*;
         loop {
-            let type_byte = self.read_u8().await?;
+            let type_byte = self.read_u8_from_both().await?;
             state = match type_byte {
                 Backend(Authentication::TYPE_BYTE) => match state {
                     State::Startup => {
@@ -244,6 +277,25 @@ where
         }
     }
 
+    async fn process_tls_request(self: &mut Self) -> ConveyResult<()> {
+        let tls_response = self.read_backend_u8().await?;
+        const TLS_SUPPORTED: u8 = b'S';
+        const TLS_NOT_SUPPORTED: u8 = b'N';
+        match tls_response {
+            TLS_NOT_SUPPORTED => {
+                self.write_frontend(&[TLS_SUPPORTED]).await?;
+                accept_tls(&self.tls_acceptor, &mut self.frontend).await
+            },
+            TLS_SUPPORTED => Err(Todo("backend with TLS".into())),
+            ErrorResponse::TYPE_BYTE => {
+                // "This would only occur if the server predates the addition of SSL support to PostgreSQL"
+                read_backend_through!(<ErrorResponse>, self);
+                Ok(())
+            }
+            _ => Err(UnknownType(TypeByte::Backend(tls_response))),
+        }
+    }
+
     async fn process_authentication(self: &mut Self, authentication: Authentication) -> ConveyResult<State> {
         match authentication {
             Authentication::Ok => Ok(State::Authenticated),
@@ -262,19 +314,19 @@ where
     }
 
     async fn read_backend<Msg: MsgDecode>(self: &mut Self) -> ConveyResult<(Vec<u8>, Msg)> {
-        Self::read_msg_mapping_err(self.backend).await
+        unwrap_stream!(&mut self.backend, Self::read_msg_mapping_err).await
     }
 
     async fn read_frontend<Msg: MsgDecode>(self: &mut Self) -> ConveyResult<(Vec<u8>, Msg)> {
-        Self::read_msg_mapping_err(self.frontend).await
+        unwrap_stream!(&mut self.frontend, Self::read_msg_mapping_err).await
     }
 
-    async fn read_msg_mapping_err<R, Msg>(stream: &mut R) -> ConveyResult<(Vec<u8>, Msg)>
+    async fn read_msg_mapping_err<R, Msg>(reader: &mut R) -> ConveyResult<(Vec<u8>, Msg)>
     where
-        R: AsyncReadExt + Unpin,
+        R: AsyncRead + Unpin,
         Msg: MsgDecode,
     {
-        let ReadData { bytes, msg_result } = read_msg(stream).await.map_err(|read_err|
+        let ReadData { bytes, msg_result } = read_msg(reader).await.map_err(|read_err|
             match read_err {
                 ReadError::IoError(io_error) => ConveyError::IoError(io_error),
                 ReadError::EncodeError(encode_error) => ConveyError::EncodeError(encode_error),
@@ -289,24 +341,90 @@ where
         Ok((bytes, message))
     }
 
-    async fn read_u8(self: &mut Self) -> ConveyResult<TypeByte> {
+    async fn read_u8_from_both(self: &mut Self) -> ConveyResult<TypeByte> {
         let either = future::select(
-            async_io::read_u8(self.backend).boxed(),
-            async_io::read_u8(self.frontend).boxed(),
+            unwrap_stream!(&mut self.backend, Self::read_u8).boxed(),
+            unwrap_stream!(&mut self.frontend, Self::read_u8).boxed(),
         ).await;
         // TODO: if both futures are ready, do we loose a result of the second one?
         match either {
             Either::Left((backend, _frontend)) => backend.map(TypeByte::Backend),
             Either::Right((frontend, _backend)) => frontend.map(TypeByte::Frontend),
-        }.map_err(IoError)
+        }
+    }
+
+    async fn read_backend_u8(self: &mut Self) -> ConveyResult<u8> {
+        unwrap_stream!(&mut self.backend, Self::read_u8).await
+    }
+
+    async fn read_u8<R>(reader: &mut R) -> ConveyResult<u8>
+    where R: AsyncRead + Unpin {
+        async_io::read_u8(reader).await.map_err(IoError)
     }
 
     async fn write_backend(self: &mut Self, bytes: &[u8]) -> ConveyResult<()> {
-        self.backend.write_all(bytes).await.map_err(IoError)
+        unwrap_stream!(&mut self.backend, |wr| Self::write_bytes(wr, bytes)).await
     }
 
     async fn write_frontend(self: &mut Self, bytes: &[u8]) -> ConveyResult<()> {
-        self.frontend.write_all(bytes).await.map_err(IoError)
+        unwrap_stream!(&mut self.frontend, |wr| Self::write_bytes(wr, bytes)).await
     }
 
+    async fn write_bytes<W>(writer: &mut W, bytes: &[u8]) -> ConveyResult<()>
+    where W: AsyncWrite + Unpin {
+        writer.write_all(bytes).await.map_err(IoError)
+    }
+}
+
+async fn unwrap_stream<'w, Plain, Tls, FnPlain, FnTls, Ok>(
+    wrap: &'w mut StreamWrap<Plain, Tls>,
+    fn_plain: impl Fn(&'w mut Plain) -> FnPlain,
+    fn_tls: impl Fn(&'w mut Tls) -> FnTls
+) -> ConveyResult<Ok>
+    where
+        FnPlain: Future<Output=ConveyResult<Ok>>,
+        FnTls: Future<Output=ConveyResult<Ok>>,
+{
+    use StreamWrap::*;
+    match wrap {
+        Plain(ref mut plain) => fn_plain(plain).await,
+        TlsHandshake => Err(TlsError(TlsError::HandshakeDisrupted)),
+        Tls(ref mut tls) => fn_tls(tls).await,
+    }
+}
+
+async fn accept_tls<Plain>(
+    tls_acceptor: &TlsAcceptor,
+    wrap: &mut StreamWrap<Plain, TlsStream<Plain>>
+) -> ConveyResult<()>
+where
+    Plain: AsyncRead + futures::io::AsyncWrite + Unpin,
+{
+    use StreamWrap::*;
+    if let Some(plain_stream) = wrap.replace_plain_with(TlsHandshake) {
+        let tls_stream = tls_acceptor.accept(plain_stream).await.unwrap();
+        core::mem::replace(wrap, Tls(tls_stream));
+        Ok(())
+    } else {
+        Err(TlsError(TlsError::HandshakeDisrupted))
+    }
+}
+
+enum StreamWrap<Plain, Tls> {
+    Plain(Plain),
+    TlsHandshake,
+    Tls(Tls),
+}
+
+impl<Plain, Tls> StreamWrap<Plain, Tls> {
+    fn replace_plain_with(self: &mut Self, value: Self) -> Option<Plain> {
+        use StreamWrap::Plain;
+        match self {
+            Plain(_) => match core::mem::replace(self, value) {
+                Plain(plain) => Some(plain),
+                _ => unsafe { unreachable_unchecked() },
+            }
+            _ => None
+        }
+    }
 }
