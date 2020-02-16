@@ -89,8 +89,8 @@ fn tls_error_to_io_error(tls_error: native_tls::Error) -> io::Error {
 
 fn new_tls_acceptor(config: &Config) -> io::Result<TlsAcceptor> {
     use native_tls::{Identity, TlsAcceptor as TlsAcceptorImpl};
-    let cert_p12 = fs::read_to_string(&config.cert_p12_file)?;
-    let tls_identity = Identity::from_pkcs12(cert_p12.as_bytes(), &config.cert_p12_password);
+    let cert_p12 = fs::read(&config.cert_p12_file)?;
+    let tls_identity = Identity::from_pkcs12(&cert_p12, &config.cert_p12_password);
     let tls_acceptor_impl = tls_identity.and_then(TlsAcceptorImpl::new);
     tls_acceptor_impl.map(TlsAcceptor::from).map_err(tls_error_to_io_error)
 }
