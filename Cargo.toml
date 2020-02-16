@@ -8,6 +8,7 @@ edition = "2018"
 native-tls = "0.2.3"
 async-native-tls = "0.3.2"
 async-std = "1.5"
+async-trait = "0.1.24"
 futures = "0.3.4"
 hex = "0.4"
 structopt = { version = "0.2", default-features = false }
