@@ -3,9 +3,8 @@ use crate::msg::util::async_io;
 use crate::msg::util::decode::{MsgDecode, Problem as DecodeProblem};
 use crate::msg::util::encode::{Problem as EncodeProblem};
 use crate::msg::util::read::*;
+use crate::tls::interface::TlsProvider;
 
-use ::async_std::net::TcpStream;
-use ::async_native_tls::{TlsAcceptor, TlsStream};
 use ::core::hint::unreachable_unchecked;
 use ::futures::future::{self, Either, Future, FutureExt};
 use ::futures::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -77,27 +76,18 @@ pub enum TlsError {
     TlsRequestedInsideTls,
 }
 
-pub async fn convey<Callback>(
-    frontend: TcpStream,
-    backend: TcpStream,
+pub struct Conveyor<FrontPlain, BackPlain, FrontTlsProvider, BackTlsProvider, Callback>
+where
+    FrontPlain: AsyncRead + AsyncWrite + Send + Unpin,
+    BackPlain: AsyncRead + AsyncWrite + Send + Unpin,
+    FrontTlsProvider: TlsProvider<FrontPlain>,
+    BackTlsProvider: TlsProvider<BackPlain>,
+{
+    frontend: StreamWrap<FrontPlain, FrontTlsProvider::Tls>,
+    backend: StreamWrap<BackPlain, BackTlsProvider::Tls>,
+    frontend_tls_provider: FrontTlsProvider,
+    _backend_tls_provider: BackTlsProvider,
     callback: Callback,
-    tls_acceptor: TlsAcceptor,
-) -> ConveyResult<()>
-where Callback: Fn(Message) -> () + Send {
-    let mut conveyor = Conveyor::new(
-        frontend,
-        backend,
-        callback,
-        tls_acceptor,
-    );
-    conveyor.go().await
-}
-
-struct Conveyor<F, B, C> {
-    frontend: StreamWrap<F, TlsStream<F>>,
-    backend: StreamWrap<B, TlsStream<B>>,
-    callback: C,
-    tls_acceptor: TlsAcceptor,
 }
 
 use ConveyError::*;
@@ -139,24 +129,29 @@ macro_rules! unwrap_stream {
     ($wrap:expr, $func:expr) => { unwrap_stream($wrap, $func, $func) }
 }
 
-impl<'a, F, B, C> Conveyor<F, B, C>
+impl<'a, FrontPlain, BackPlain, FrontTlsProvider, BackTlsProvider, Callback>
+Conveyor<FrontPlain, BackPlain, FrontTlsProvider, BackTlsProvider, Callback>
 where
-    F: AsyncRead + AsyncWrite + Send + Unpin,
-    B: AsyncRead + AsyncWrite + Send + Unpin,
-    C: Fn(Message) -> () + Send,
+    FrontPlain: AsyncRead + AsyncWrite + Send + Unpin,
+    BackPlain: AsyncRead + AsyncWrite + Send + Unpin,
+    FrontTlsProvider: TlsProvider<FrontPlain> + Send,
+    BackTlsProvider: TlsProvider<BackPlain> + Send,
+    Callback: Fn(Message) -> () + Send,
 {
-    fn new(
-        frontend: F,
-        backend: B,
-        callback: C,
-        tls_acceptor: TlsAcceptor,
-    ) -> Self {
+    pub async fn start(
+        frontend: FrontPlain,
+        backend: BackPlain,
+        frontend_tls_provider: FrontTlsProvider,
+        backend_tls_provider: BackTlsProvider,
+        callback: Callback,
+    ) -> ConveyResult<()> {
         Self {
             frontend: StreamWrap::Plain(frontend),
             backend: StreamWrap::Plain(backend),
+            frontend_tls_provider,
+            _backend_tls_provider: backend_tls_provider,
             callback,
-            tls_acceptor,
-        }
+        }.go().await
     }
 
     #[allow(clippy::cognitive_complexity)]
@@ -284,7 +279,7 @@ where
         match tls_response {
             TLS_NOT_SUPPORTED => {
                 self.write_frontend(&[TLS_SUPPORTED]).await?;
-                accept_tls(&self.tls_acceptor, &mut self.frontend).await
+                switch_to_tls(&mut self.frontend, &self.frontend_tls_provider).await
             },
             TLS_SUPPORTED => Err(Todo("backend with TLS".into())),
             ErrorResponse::TYPE_BYTE => {
@@ -393,16 +388,17 @@ async fn unwrap_stream<'w, Plain, Tls, FnPlain, FnTls, Ok>(
     }
 }
 
-async fn accept_tls<Plain>(
-    tls_acceptor: &TlsAcceptor,
-    wrap: &mut StreamWrap<Plain, TlsStream<Plain>>
+async fn switch_to_tls<Plain, TlsProvider>(
+    wrap: &mut StreamWrap<Plain, TlsProvider::Tls>,
+    tls_provider: &TlsProvider,
 ) -> ConveyResult<()>
 where
-    Plain: AsyncRead + futures::io::AsyncWrite + Unpin,
+    Plain: AsyncRead + AsyncWrite + Send + Unpin,
+    TlsProvider: self::TlsProvider<Plain>,
 {
     use StreamWrap::*;
     if let Some(plain_stream) = wrap.replace_plain_with(TlsHandshake) {
-        let tls_stream = tls_acceptor.accept(plain_stream).await.unwrap();
+        let tls_stream = tls_provider.handshake(plain_stream).await.unwrap();
         core::mem::replace(wrap, Tls(tls_stream));
         Ok(())
     } else {
