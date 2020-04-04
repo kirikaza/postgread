@@ -39,19 +39,19 @@ impl<'a> BytesTarget<'a> {
         Self { slice, pos: 0 }
     }
 
-    pub fn left(self: &Self) -> usize {
+    pub fn left(&self) -> usize {
         self.slice.len() - self.pos
     }
 
-    pub fn rest(self: &mut Self) -> &mut [u8] {
+    pub fn rest(&mut self) -> &mut [u8] {
         &mut self.slice[self.pos..]
     }
 
-    pub fn put_u8(self: &mut Self, value: u8) -> EncodeResult<()> {
+    pub fn put_u8(&mut self, value: u8) -> EncodeResult<()> {
         put_bounded!(u8, self, value)
     }
 
-    pub fn put_u32(self: &mut Self, value: u32) -> EncodeResult<()> {
+    pub fn put_u32(&mut self, value: u32) -> EncodeResult<()> {
         put_bounded!(u32, self, value)
     }
 }

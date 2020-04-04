@@ -24,31 +24,31 @@ impl<'a> BytesSource<'a> {
         Self { slice, pos: 0 }
     }
 
-    pub fn left(self: &Self) -> usize {
+    pub fn left(&self) -> usize {
         self.slice.len() - self.pos
     }
 
-    pub fn take_u8(self: &mut Self) -> DecodeResult<u8> {
+    pub fn take_u8(&mut self) -> DecodeResult<u8> {
         self.take_bounded(1, |s| s[0])
     }
 
-    pub fn take_u16(self: &mut Self) -> DecodeResult<u16> {
+    pub fn take_u16(&mut self) -> DecodeResult<u16> {
         self.take_bounded(2, |s| u16::from_be_bytes([s[0], s[1]]))
     }
 
-    pub fn take_u32(self: &mut Self) -> DecodeResult<u32> {
+    pub fn take_u32(&mut self) -> DecodeResult<u32> {
         self.take_bounded(4, |s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]))
     }
 
-    pub fn take_slice(self: &mut Self, result: &mut [u8]) -> DecodeResult<()> {
+    pub fn take_slice(&mut self, result: &mut [u8]) -> DecodeResult<()> {
         self.take_bounded(result.len(), |s| result.copy_from_slice(s))
     }
 
-    pub fn take_vec(self: &mut Self, len: usize) -> DecodeResult<Vec<u8>> {
+    pub fn take_vec(&mut self, len: usize) -> DecodeResult<Vec<u8>> {
         self.take_bounded(len, |s| s.to_vec())
     }
 
-    pub fn take_until_null(self: &mut Self) -> DecodeResult<Vec<u8>> {
+    pub fn take_until_null(&mut self) -> DecodeResult<Vec<u8>> {
         // hope the explicit loop is the best for optimizer
         for null_pos in self.pos .. self.slice.len() {
             if self.slice[null_pos] == 0 {
@@ -61,7 +61,7 @@ impl<'a> BytesSource<'a> {
         Err(Problem::NoNullByte)
     }
 
-    fn take_bounded<Result, Decode>(self: &mut Self, needed: usize, decode: Decode) -> DecodeResult<Result>
+    fn take_bounded<Result, Decode>(&mut self, needed: usize, decode: Decode) -> DecodeResult<Result>
     where Decode: FnOnce(&'a [u8]) -> Result {
         if self.pos + needed <= self.slice.len() {
             let sub_slice = &self.slice[self.pos .. self.pos + needed];
