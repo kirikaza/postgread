@@ -170,7 +170,7 @@ where
         };
         use TypeByte::*;
         loop {
-            let type_byte = self.read_u8_from_both().await?;
+            let type_byte = self.read_type_byte_from_both().await?;
             state = match type_byte {
                 Backend(Authentication::TYPE_BYTE) => match state {
                     State::Startup => {
@@ -273,7 +273,7 @@ where
     }
 
     async fn process_tls_request(&mut self) -> ConveyResult<()> {
-        let tls_response = self.read_backend_u8().await?;
+        let tls_response = self.read_backend_type_byte().await?;
         const TLS_SUPPORTED: u8 = b'S';
         const TLS_NOT_SUPPORTED: u8 = b'N';
         match tls_response {
@@ -339,7 +339,7 @@ where
         Ok((bytes, message))
     }
 
-    async fn read_u8_from_both(&mut self) -> ConveyResult<TypeByte> {
+    async fn read_type_byte_from_both(&mut self) -> ConveyResult<TypeByte> {
         let either = future::select(
             unwrap_stream!(&mut self.backend, Self::read_u8).boxed(),
             unwrap_stream!(&mut self.frontend, Self::read_u8).boxed(),
@@ -351,7 +351,7 @@ where
         }
     }
 
-    async fn read_backend_u8(&mut self) -> ConveyResult<u8> {
+    async fn read_backend_type_byte(&mut self) -> ConveyResult<u8> {
         unwrap_stream!(&mut self.backend, Self::read_u8).await
     }
 
