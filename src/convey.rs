@@ -3,7 +3,7 @@ use crate::msg::util::async_io;
 use crate::msg::util::decode::{MsgDecode, Problem as DecodeProblem};
 use crate::msg::util::encode::{Problem as EncodeProblem};
 use crate::msg::util::read::*;
-use crate::tls::interface::TlsProvider;
+use crate::tls::interface::{TlsClient, TlsServer};
 
 use ::core::hint::unreachable_unchecked;
 use ::futures::future::{self, Either, Future, FutureExt};
@@ -76,17 +76,17 @@ pub enum TlsError {
     TlsRequestedInsideTls,
 }
 
-pub struct Conveyor<FrontPlain, BackPlain, FrontTlsProvider, BackTlsProvider, Callback>
+pub struct Conveyor<FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>
 where
     FrontPlain: AsyncRead + AsyncWrite + Send + Unpin,
     BackPlain: AsyncRead + AsyncWrite + Send + Unpin,
-    FrontTlsProvider: TlsProvider<FrontPlain>,
-    BackTlsProvider: TlsProvider<BackPlain>,
+    FrontTlsServer: TlsServer<FrontPlain>,
+    BackTlsClient: TlsClient<BackPlain>,
 {
-    frontend: StreamWrap<FrontPlain, FrontTlsProvider::Tls>,
-    backend: StreamWrap<BackPlain, BackTlsProvider::Tls>,
-    frontend_tls_provider: FrontTlsProvider,
-    _backend_tls_provider: BackTlsProvider,
+    frontend: StreamWrap<FrontPlain, FrontTlsServer::Tls>,
+    backend: StreamWrap<BackPlain, BackTlsClient::Tls>,
+    frontend_tls_server: FrontTlsServer,
+    backend_tls_client: BackTlsClient,
     callback: Callback,
 }
 
@@ -129,27 +129,27 @@ macro_rules! unwrap_stream {
     ($wrap:expr, $func:expr) => { unwrap_stream($wrap, $func, $func) }
 }
 
-impl<'a, FrontPlain, BackPlain, FrontTlsProvider, BackTlsProvider, Callback>
-Conveyor<FrontPlain, BackPlain, FrontTlsProvider, BackTlsProvider, Callback>
+impl<'a, FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>
+Conveyor<FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>
 where
     FrontPlain: AsyncRead + AsyncWrite + Send + Unpin,
     BackPlain: AsyncRead + AsyncWrite + Send + Unpin,
-    FrontTlsProvider: TlsProvider<FrontPlain> + Send,
-    BackTlsProvider: TlsProvider<BackPlain> + Send,
+    FrontTlsServer: TlsServer<FrontPlain> + Send,
+    BackTlsClient: TlsClient<BackPlain> + Send,
     Callback: Fn(Message) -> () + Send,
 {
     pub async fn start(
         frontend: FrontPlain,
         backend: BackPlain,
-        frontend_tls_provider: FrontTlsProvider,
-        backend_tls_provider: BackTlsProvider,
+        frontend_tls_provider: FrontTlsServer,
+        backend_tls_provider: BackTlsClient,
         callback: Callback,
     ) -> ConveyResult<()> {
         Self {
             frontend: StreamWrap::Plain(frontend),
             backend: StreamWrap::Plain(backend),
-            frontend_tls_provider,
-            _backend_tls_provider: backend_tls_provider,
+            frontend_tls_server: frontend_tls_provider,
+            backend_tls_client: backend_tls_provider,
             callback,
         }.go().await
     }
@@ -277,18 +277,21 @@ where
         const TLS_SUPPORTED: u8 = b'S';
         const TLS_NOT_SUPPORTED: u8 = b'N';
         match tls_response {
-            TLS_NOT_SUPPORTED => {
-                self.write_frontend(&[TLS_SUPPORTED]).await?;
-                switch_to_tls(&mut self.frontend, &self.frontend_tls_provider).await
+            TLS_NOT_SUPPORTED => {},
+            TLS_SUPPORTED => {
+                switch_frontend_to_tls(&mut self.backend, &self.backend_tls_client).await?;
             },
-            TLS_SUPPORTED => Err(Todo("backend with TLS".into())),
             ErrorResponse::TYPE_BYTE => {
                 // "This would only occur if the server predates the addition of SSL support to PostgreSQL"
                 read_backend_through!(<ErrorResponse>, self);
-                Ok(())
+                return Ok(())
             }
-            _ => Err(UnknownType(TypeByte::Backend(tls_response))),
+            _ => {
+                return Err(UnknownType(TypeByte::Backend(tls_response)))
+            },
         }
+        self.write_frontend(&[TLS_SUPPORTED]).await?;
+        switch_backend_to_tls(&mut self.frontend, &self.frontend_tls_server).await
     }
 
     async fn process_authentication(self: &mut Self, authentication: Authentication) -> ConveyResult<State> {
@@ -376,9 +379,9 @@ async fn unwrap_stream<'w, Plain, Tls, FnPlain, FnTls, Ok>(
     fn_plain: impl Fn(&'w mut Plain) -> FnPlain,
     fn_tls: impl Fn(&'w mut Tls) -> FnTls
 ) -> ConveyResult<Ok>
-    where
-        FnPlain: Future<Output=ConveyResult<Ok>>,
-        FnTls: Future<Output=ConveyResult<Ok>>,
+where
+    FnPlain: Future<Output=ConveyResult<Ok>>,
+    FnTls: Future<Output=ConveyResult<Ok>>,
 {
     use StreamWrap::*;
     match wrap {
@@ -388,17 +391,40 @@ async fn unwrap_stream<'w, Plain, Tls, FnPlain, FnTls, Ok>(
     }
 }
 
-async fn switch_to_tls<Plain, TlsProvider>(
-    wrap: &mut StreamWrap<Plain, TlsProvider::Tls>,
-    tls_provider: &TlsProvider,
+async fn switch_backend_to_tls<Plain, TlsServer>(
+    wrap: &mut StreamWrap<Plain, TlsServer::Tls>,
+    tls_server: &TlsServer,
 ) -> ConveyResult<()>
 where
     Plain: AsyncRead + AsyncWrite + Send + Unpin,
-    TlsProvider: self::TlsProvider<Plain>,
+    TlsServer: self::TlsServer<Plain>,
+{
+    switch_to_tls(wrap, |plain| { tls_server.accept(plain) }).await
+}
+
+async fn switch_frontend_to_tls<Plain, TlsClient>(
+    wrap: &mut StreamWrap<Plain, TlsClient::Tls>,
+    tls_client: &TlsClient,
+) -> ConveyResult<()>
+where
+    Plain: AsyncRead + AsyncWrite + Send + Unpin,
+    TlsClient: self::TlsClient<Plain>,
+{
+    switch_to_tls(wrap, |plain| { tls_client.connect(plain) }).await
+}
+
+async fn switch_to_tls<Plain, FutHandshake, TlsProviderImpl, TlsProviderError>(
+    wrap: &mut StreamWrap<Plain, TlsProviderImpl>,
+    fn_handshake: impl Fn(Plain) -> FutHandshake,
+) -> ConveyResult<()>
+where
+    Plain: AsyncRead + AsyncWrite + Send + Unpin,
+    FutHandshake: Future<Output=Result<TlsProviderImpl, TlsProviderError>>,
+    TlsProviderError: std::fmt::Debug,
 {
     use StreamWrap::*;
     if let Some(plain_stream) = wrap.replace_plain_with(TlsHandshake) {
-        let tls_stream = tls_provider.handshake(plain_stream).await.unwrap();
+        let tls_stream = fn_handshake(plain_stream).await.unwrap();
         core::mem::replace(wrap, Tls(tls_stream));
         Ok(())
     } else {

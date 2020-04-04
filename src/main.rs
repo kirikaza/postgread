@@ -6,9 +6,9 @@ extern crate structopt;
 use async_std::net::{TcpListener, TcpStream};
 use async_std::stream::StreamExt;
 use async_std::task;
-use async_native_tls::TlsAcceptor;
+use async_native_tls::{TlsAcceptor, TlsConnector};
 use postgread::convey::{ConveyResult, Conveyor, Message};
-use postgread::tls::native::NativeTlsProvider;
+use postgread::tls::native::{NativeTlsServer, NativeTlsClient};
 use std::fs;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -51,14 +51,15 @@ pub async fn convey<Callback>(
     frontend: TcpStream,
     backend: TcpStream,
     callback: Callback,
-    tls_acceptor: &TlsAcceptor,
+    frontend_tls_acceptor: &TlsAcceptor,
+    backend_tls_connector: &TlsConnector,
 ) -> ConveyResult<()>
     where Callback: Fn(Message) -> () + Send {
     Conveyor::start(
         frontend,
         backend,
-        NativeTlsProvider(tls_acceptor),
-        NativeTlsProvider(tls_acceptor),
+        NativeTlsServer(frontend_tls_acceptor),
+        NativeTlsClient { connector: backend_tls_connector, hostname: "localhost" },
         callback,
     ).await
 }
@@ -72,7 +73,7 @@ async fn handle_client(config: Config, tls_acceptor: TlsAcceptor, id: usize, cli
         match TcpStream::connect(&server_endpoint).await {
             Ok(server) => {
                 println!("[{}] connected to target server {}", id, server.local_addr().unwrap());
-                let result = convey(client, server, |msg| dump_msg(id, msg), &tls_acceptor).await;
+                let result = convey(client, server, |msg| dump_msg(id, msg), &tls_acceptor, &new_tls_connector()).await;
                 println!("[{}] convey result is {:?}", id, result);
             },
             Err(err) => {
@@ -93,6 +94,10 @@ fn new_tls_acceptor(config: &Config) -> io::Result<TlsAcceptor> {
     let tls_identity = Identity::from_pkcs12(&cert_p12, &config.cert_p12_password);
     let tls_acceptor_impl = tls_identity.and_then(TlsAcceptorImpl::new);
     tls_acceptor_impl.map(TlsAcceptor::from).map_err(tls_error_to_io_error)
+}
+
+fn new_tls_connector() -> TlsConnector {
+    TlsConnector::new().danger_accept_invalid_certs(true)  // TODO make it configurable
 }
 
 fn main() -> io::Result<()> {
