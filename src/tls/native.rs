@@ -26,7 +26,7 @@ where Plain: AsyncRead + AsyncWrite + Send + Unpin {
 #[async_trait]
 impl<'a, Plain> TlsClient<Plain> for NativeTlsClient<'a>
 where Plain: AsyncRead + AsyncWrite + Send + Unpin {
-    async fn connect(self: &Self, plain: Plain) -> Result<TlsStream<Plain>, ::native_tls::Error>
+    async fn connect(&self, plain: Plain) -> Result<TlsStream<Plain>, ::native_tls::Error>
     where Plain: 'async_trait {
         self.connector.connect(self.hostname, plain).await
     }
@@ -35,7 +35,7 @@ where Plain: AsyncRead + AsyncWrite + Send + Unpin {
 #[async_trait]
 impl<'a, Plain> TlsServer<Plain> for NativeTlsServer<'a>
 where Plain: AsyncRead + AsyncWrite + Send + Unpin {
-    async fn accept(self: &Self, plain: Plain) -> Result<TlsStream<Plain>, ::native_tls::Error>
+    async fn accept(&self, plain: Plain) -> Result<TlsStream<Plain>, ::native_tls::Error>
     where Plain: 'async_trait {
         self.0.accept(plain).await
     }

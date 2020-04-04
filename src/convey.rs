@@ -155,7 +155,7 @@ where
     }
 
     #[allow(clippy::cognitive_complexity)]
-    async fn go(self: &mut Self) -> ConveyResult<()> {
+    async fn go(&mut self) -> ConveyResult<()> {
         let mut state = match read_frontend_through!(<Initial>, self) {
             Initial::Startup(_) => State::Startup,
             Initial::Cancel(_) => return Ok(()),
@@ -272,7 +272,7 @@ where
         }
     }
 
-    async fn process_tls_request(self: &mut Self) -> ConveyResult<()> {
+    async fn process_tls_request(&mut self) -> ConveyResult<()> {
         let tls_response = self.read_backend_u8().await?;
         const TLS_SUPPORTED: u8 = b'S';
         const TLS_NOT_SUPPORTED: u8 = b'N';
@@ -294,7 +294,7 @@ where
         switch_backend_to_tls(&mut self.frontend, &self.frontend_tls_server).await
     }
 
-    async fn process_authentication(self: &mut Self, authentication: Authentication) -> ConveyResult<State> {
+    async fn process_authentication(&mut self, authentication: Authentication) -> ConveyResult<State> {
         match authentication {
             Authentication::Ok => Ok(State::Authenticated),
             _ => Err(Todo("Authentication::TYPE_BYTE != Ok".into())),
@@ -303,19 +303,19 @@ where
 
     // util:
 
-    fn callback_backend(self: &Self, wrap: BackendMsg<'a>) {
+    fn callback_backend(&self, wrap: BackendMsg<'a>) {
         (self.callback)(Message::Backend(wrap));
     }
 
-    fn callback_frontend(self: &Self, wrap: FrontendMsg<'a>) {
+    fn callback_frontend(&self, wrap: FrontendMsg<'a>) {
         (self.callback)(Message::Frontend(wrap));
     }
 
-    async fn read_backend<Msg: MsgDecode>(self: &mut Self) -> ConveyResult<(Vec<u8>, Msg)> {
+    async fn read_backend<Msg: MsgDecode>(&mut self) -> ConveyResult<(Vec<u8>, Msg)> {
         unwrap_stream!(&mut self.backend, Self::read_msg_mapping_err).await
     }
 
-    async fn read_frontend<Msg: MsgDecode>(self: &mut Self) -> ConveyResult<(Vec<u8>, Msg)> {
+    async fn read_frontend<Msg: MsgDecode>(&mut self) -> ConveyResult<(Vec<u8>, Msg)> {
         unwrap_stream!(&mut self.frontend, Self::read_msg_mapping_err).await
     }
 
@@ -339,7 +339,7 @@ where
         Ok((bytes, message))
     }
 
-    async fn read_u8_from_both(self: &mut Self) -> ConveyResult<TypeByte> {
+    async fn read_u8_from_both(&mut self) -> ConveyResult<TypeByte> {
         let either = future::select(
             unwrap_stream!(&mut self.backend, Self::read_u8).boxed(),
             unwrap_stream!(&mut self.frontend, Self::read_u8).boxed(),
@@ -351,7 +351,7 @@ where
         }
     }
 
-    async fn read_backend_u8(self: &mut Self) -> ConveyResult<u8> {
+    async fn read_backend_u8(&mut self) -> ConveyResult<u8> {
         unwrap_stream!(&mut self.backend, Self::read_u8).await
     }
 
@@ -360,11 +360,11 @@ where
         async_io::read_u8(reader).await.map_err(IoError)
     }
 
-    async fn write_backend(self: &mut Self, bytes: &[u8]) -> ConveyResult<()> {
+    async fn write_backend(&mut self, bytes: &[u8]) -> ConveyResult<()> {
         unwrap_stream!(&mut self.backend, |wr| Self::write_bytes(wr, bytes)).await
     }
 
-    async fn write_frontend(self: &mut Self, bytes: &[u8]) -> ConveyResult<()> {
+    async fn write_frontend(&mut self, bytes: &[u8]) -> ConveyResult<()> {
         unwrap_stream!(&mut self.frontend, |wr| Self::write_bytes(wr, bytes)).await
     }
 
@@ -439,7 +439,7 @@ enum StreamWrap<Plain, Tls> {
 }
 
 impl<Plain, Tls> StreamWrap<Plain, Tls> {
-    fn replace_plain_with(self: &mut Self, value: Self) -> Option<Plain> {
+    fn replace_plain_with(&mut self, value: Self) -> Option<Plain> {
         use StreamWrap::Plain;
         match self {
             Plain(_) => match core::mem::replace(self, value) {
