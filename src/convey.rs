@@ -136,6 +136,8 @@ where
     BackPlain: AsyncRead + AsyncWrite + Send + Unpin,
     FrontTlsServer: TlsServer<FrontPlain> + Send,
     BackTlsClient: TlsClient<BackPlain> + Send,
+    FrontTlsServer::Tls: AsyncRead + AsyncWrite,
+    BackTlsClient::Tls: AsyncRead + AsyncWrite,
     Callback: Fn(Message) -> () + Send,
 {
     pub async fn start(
