@@ -12,13 +12,13 @@ pub struct NativeTlsClient<'a> {
 pub struct NativeTlsServer<'a>(pub &'a TlsAcceptor);
 
 impl<'a, Plain> TlsProvider<Plain> for NativeTlsClient<'a>
-where Plain: AsyncRead + AsyncWrite + Send + Unpin {
+where Plain: Send + Unpin {
     type Tls = TlsStream<Plain>;
     type Error = ::native_tls::Error;
 }
 
 impl<'a, Plain> TlsProvider<Plain> for NativeTlsServer<'a>
-where Plain: AsyncRead + AsyncWrite + Send + Unpin {
+where Plain: Send + Unpin {
     type Tls = TlsStream<Plain>;
     type Error = ::native_tls::Error;
 }
