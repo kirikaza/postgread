@@ -7,7 +7,7 @@ use async_std::net::{TcpListener, TcpStream};
 use async_std::stream::StreamExt;
 use async_std::task;
 use async_native_tls::{TlsAcceptor, TlsConnector};
-use postgread::convey::{ConveyResult, Conveyor, Message};
+use postgread::convey::{Message, convey};
 use postgread::tls::native::{NativeTlsServer, NativeTlsClient};
 use std::fs;
 use std::io;
@@ -47,23 +47,6 @@ fn dump_msg(id: usize, msg: Message) {
     }
 }
 
-pub async fn convey<Callback>(
-    frontend: TcpStream,
-    backend: TcpStream,
-    callback: Callback,
-    frontend_tls_acceptor: &TlsAcceptor,
-    backend_tls_connector: &TlsConnector,
-) -> ConveyResult<()>
-    where Callback: Fn(Message) -> () + Send {
-    Conveyor::start(
-        frontend,
-        backend,
-        NativeTlsServer(frontend_tls_acceptor),
-        NativeTlsClient { connector: backend_tls_connector, hostname: "localhost" },
-        callback,
-    ).await
-}
-
 async fn handle_client(config: Config, tls_acceptor: TlsAcceptor, id: usize, client: TcpStream) -> io::Result<()> {
     println!("[{}] accepted client {:?}", id, client.peer_addr().unwrap());
     let target_ip = config.target_host.parse()
@@ -73,7 +56,9 @@ async fn handle_client(config: Config, tls_acceptor: TlsAcceptor, id: usize, cli
         match TcpStream::connect(&server_endpoint).await {
             Ok(server) => {
                 println!("[{}] connected to target server {}", id, server.local_addr().unwrap());
-                let result = convey(client, server, |msg| dump_msg(id, msg), &tls_acceptor, &new_tls_connector()).await;
+                let frontend_tls_server = NativeTlsServer(&tls_acceptor);
+                let backend_tls_client = NativeTlsClient { connector: &new_tls_connector(), hostname: "localhost" };
+                let result = convey(client, server, frontend_tls_server, backend_tls_client, |msg| dump_msg(id, msg)).await;
                 println!("[{}] convey result is {:?}", id, result);
             },
             Err(err) => {
