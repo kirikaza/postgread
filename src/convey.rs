@@ -5,10 +5,11 @@ use crate::msg::util::encode::{Problem as EncodeProblem};
 use crate::msg::util::read::*;
 use crate::tls::interface::{TlsClient, TlsServer};
 
+use ::async_trait::async_trait;
 use ::core::hint::unreachable_unchecked;
 use ::futures::future::{self, Either, Future, FutureExt};
 use ::futures::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use ::std::io::{Error as IoError};
+use ::std::io::{Error as IoError, Result as IoResult};
 
 #[derive(Debug)]
 pub enum ConveyError {
@@ -76,10 +77,35 @@ pub enum TlsError {
     TlsRequestedInsideTls,
 }
 
-pub struct Conveyor<FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>
+pub async fn convey<FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>(
+    frontend: FrontPlain,
+    backend: BackPlain,
+    frontend_tls_provider: FrontTlsServer,
+    backend_tls_provider: BackTlsClient,
+    callback: Callback,
+) -> ConveyResult<()>
 where
     FrontPlain: AsyncRead + AsyncWrite + Send + Unpin,
     BackPlain: AsyncRead + AsyncWrite + Send + Unpin,
+    FrontTlsServer: TlsServer<FrontPlain> + Send,
+    BackTlsClient: TlsClient<BackPlain> + Send,
+    FrontTlsServer::Tls: AsyncRead + AsyncWrite,
+    BackTlsClient::Tls: AsyncRead + AsyncWrite,
+    Callback: Fn(Message) -> () + Send,
+{
+    Conveyor {
+        frontend: StreamWrap::Plain(frontend),
+        backend: StreamWrap::Plain(backend),
+        frontend_tls_server: frontend_tls_provider,
+        backend_tls_client: backend_tls_provider,
+        callback,
+    }.go().await
+}
+
+struct Conveyor<FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>
+where
+    FrontPlain: Send + Unpin,
+    BackPlain: Send + Unpin,
     FrontTlsServer: TlsServer<FrontPlain>,
     BackTlsClient: TlsClient<BackPlain>,
 {
@@ -132,30 +158,14 @@ macro_rules! unwrap_stream {
 impl<'a, FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>
 Conveyor<FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>
 where
-    FrontPlain: AsyncRead + AsyncWrite + Send + Unpin,
-    BackPlain: AsyncRead + AsyncWrite + Send + Unpin,
+    FrontPlain: ConveyReader + ConveyWriter,
+    BackPlain: ConveyReader + ConveyWriter,
     FrontTlsServer: TlsServer<FrontPlain> + Send,
     BackTlsClient: TlsClient<BackPlain> + Send,
-    FrontTlsServer::Tls: AsyncRead + AsyncWrite,
-    BackTlsClient::Tls: AsyncRead + AsyncWrite,
+    FrontTlsServer::Tls: ConveyReader + ConveyWriter,
+    BackTlsClient::Tls: ConveyReader + ConveyWriter,
     Callback: Fn(Message) -> () + Send,
 {
-    pub async fn start(
-        frontend: FrontPlain,
-        backend: BackPlain,
-        frontend_tls_provider: FrontTlsServer,
-        backend_tls_provider: BackTlsClient,
-        callback: Callback,
-    ) -> ConveyResult<()> {
-        Self {
-            frontend: StreamWrap::Plain(frontend),
-            backend: StreamWrap::Plain(backend),
-            frontend_tls_server: frontend_tls_provider,
-            backend_tls_client: backend_tls_provider,
-            callback,
-        }.go().await
-    }
-
     #[allow(clippy::cognitive_complexity)]
     async fn go(&mut self) -> ConveyResult<()> {
         let mut state = match read_frontend_through!(<Initial>, self) {
@@ -323,10 +333,10 @@ where
 
     async fn read_msg_mapping_err<R, Msg>(reader: &mut R) -> ConveyResult<(Vec<u8>, Msg)>
     where
-        R: AsyncRead + Unpin,
+        R: ConveyReader,
         Msg: MsgDecode,
     {
-        let ReadData { bytes, msg_result } = read_msg(reader).await.map_err(|read_err|
+        let ReadData { bytes, msg_result } = reader.read_msg().await.map_err(|read_err|
             match read_err {
                 ReadError::IoError(io_error) => ConveyError::IoError(io_error),
                 ReadError::EncodeError(encode_error) => ConveyError::EncodeError(encode_error),
@@ -343,8 +353,8 @@ where
 
     async fn read_type_byte_from_both(&mut self) -> ConveyResult<TypeByte> {
         let either = future::select(
-            unwrap_stream!(&mut self.backend, Self::read_u8).boxed(),
-            unwrap_stream!(&mut self.frontend, Self::read_u8).boxed(),
+            unwrap_stream!(&mut self.backend, Self::read_type_byte).boxed(),
+            unwrap_stream!(&mut self.frontend, Self::read_type_byte).boxed(),
         ).await;
         // TODO: if both futures are ready, do we loose a result of the second one?
         match either {
@@ -354,12 +364,11 @@ where
     }
 
     async fn read_backend_type_byte(&mut self) -> ConveyResult<u8> {
-        unwrap_stream!(&mut self.backend, Self::read_u8).await
+        unwrap_stream!(&mut self.backend, Self::read_type_byte).await
     }
 
-    async fn read_u8<R>(reader: &mut R) -> ConveyResult<u8>
-    where R: AsyncRead + Unpin {
-        async_io::read_u8(reader).await.map_err(IoError)
+    async fn read_type_byte(reader: &mut impl ConveyReader) -> ConveyResult<u8> {
+        reader.read_type_byte().await.map_err(IoError)
     }
 
     async fn write_backend(&mut self, bytes: &[u8]) -> ConveyResult<()> {
@@ -370,9 +379,8 @@ where
         unwrap_stream!(&mut self.frontend, |wr| Self::write_bytes(wr, bytes)).await
     }
 
-    async fn write_bytes<W>(writer: &mut W, bytes: &[u8]) -> ConveyResult<()>
-    where W: AsyncWrite + Unpin {
-        writer.write_all(bytes).await.map_err(IoError)
+    async fn write_bytes(writer: &mut impl ConveyWriter, bytes: &[u8]) -> ConveyResult<()> {
+        writer.write_bytes(bytes).await.map_err(IoError)
     }
 }
 
@@ -398,7 +406,7 @@ async fn switch_backend_to_tls<Plain, TlsServer>(
     tls_server: &TlsServer,
 ) -> ConveyResult<()>
 where
-    Plain: AsyncRead + AsyncWrite + Send + Unpin,
+    Plain: Send + Unpin,
     TlsServer: self::TlsServer<Plain>,
 {
     switch_to_tls(wrap, |plain| { tls_server.accept(plain) }).await
@@ -409,7 +417,7 @@ async fn switch_frontend_to_tls<Plain, TlsClient>(
     tls_client: &TlsClient,
 ) -> ConveyResult<()>
 where
-    Plain: AsyncRead + AsyncWrite + Send + Unpin,
+    Plain: Send + Unpin,
     TlsClient: self::TlsClient<Plain>,
 {
     switch_to_tls(wrap, |plain| { tls_client.connect(plain) }).await
@@ -420,7 +428,7 @@ async fn switch_to_tls<Plain, FutHandshake, TlsProviderImpl, TlsProviderError>(
     fn_handshake: impl Fn(Plain) -> FutHandshake,
 ) -> ConveyResult<()>
 where
-    Plain: AsyncRead + AsyncWrite + Send + Unpin,
+    Plain: Send + Unpin,
     FutHandshake: Future<Output=Result<TlsProviderImpl, TlsProviderError>>,
     TlsProviderError: std::fmt::Debug,
 {
@@ -450,5 +458,36 @@ impl<Plain, Tls> StreamWrap<Plain, Tls> {
             }
             _ => None
         }
+    }
+}
+
+#[async_trait]
+trait ConveyReader : Send + Unpin {
+    async fn read_msg<Msg: MsgDecode>(&mut self) -> ReadResult<Msg>;
+    async fn read_type_byte(&mut self) -> IoResult<u8>;
+}
+
+#[async_trait]
+impl<R> ConveyReader for R
+    where R: AsyncRead + Send + Unpin {
+    async fn read_msg<Msg: MsgDecode>(&mut self) -> ReadResult<Msg> {
+        read_msg(self).await
+    }
+
+    async fn read_type_byte(&mut self) -> IoResult<u8> {
+        async_io::read_u8(self).await
+    }
+}
+
+#[async_trait]
+trait ConveyWriter : Send + Unpin {
+    async fn write_bytes(&mut self, bytes: &[u8]) -> IoResult<()>;
+}
+
+#[async_trait]
+impl<W> ConveyWriter for W
+    where W: AsyncWrite + Send + Unpin {
+    async fn write_bytes(&mut self, bytes: &[u8]) -> IoResult<()> {
+        self.write_all(bytes).await
     }
 }
