@@ -312,7 +312,7 @@ where
         match tls_response {
             TLS_NOT_SUPPORTED => {},
             TLS_SUPPORTED => {
-                switch_frontend_to_tls(&mut self.backend, &self.backend_tls_client).await?;
+                switch_client_to_tls(&mut self.backend, &self.backend_tls_client).await?;
             },
             ErrorResponse::TYPE_BYTE => {
                 // "This would only occur if the server predates the addition of SSL support to PostgreSQL"
@@ -324,7 +324,7 @@ where
             },
         }
         self.write_frontend(&[TLS_SUPPORTED]).await?;
-        switch_backend_to_tls(&mut self.frontend, &self.frontend_tls_server).await
+        switch_server_to_tls(&mut self.frontend, &self.frontend_tls_server).await
     }
 
     async fn process_authentication(&mut self, authentication: Authentication) -> ConveyResult<State> {
@@ -424,7 +424,7 @@ where
     }
 }
 
-async fn switch_backend_to_tls<Plain, TlsServer>(
+async fn switch_server_to_tls<Plain, TlsServer>(
     wrap: &mut StreamWrap<Plain, TlsServer::Tls>,
     tls_server: &TlsServer,
 ) -> ConveyResult<()>
@@ -435,7 +435,7 @@ where
     switch_to_tls(wrap, |plain| { tls_server.accept(plain) }).await
 }
 
-async fn switch_frontend_to_tls<Plain, TlsClient>(
+async fn switch_client_to_tls<Plain, TlsClient>(
     wrap: &mut StreamWrap<Plain, TlsClient::Tls>,
     tls_client: &TlsClient,
 ) -> ConveyResult<()>
