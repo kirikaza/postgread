@@ -4,7 +4,7 @@ use ::std::fmt::{self, Debug, Formatter};
 
 #[derive(Debug, PartialEq)]
 pub struct DataRow {
-    columns: Vec<Column>,
+    pub columns: Vec<Column>,
 }
 
 #[derive(PartialEq)]

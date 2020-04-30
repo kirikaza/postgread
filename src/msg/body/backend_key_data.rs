@@ -2,8 +2,8 @@ use crate::msg::util::decode::*;
 
 #[derive(Debug, PartialEq)]
 pub struct BackendKeyData {
-    process_id: u32,
-    secret_key: u32,
+    pub process_id: u32,
+    pub secret_key: u32,
 }
 
 impl BackendKeyData {

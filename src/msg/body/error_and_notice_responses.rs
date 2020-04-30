@@ -2,10 +2,10 @@ use crate::msg::util::decode::{*, Problem::*};
 use ::std::fmt::{self, Debug, Formatter};
 
 #[derive(Debug, PartialEq)]
-pub struct ErrorResponse(ErrorOrNoticeFields);
+pub struct ErrorResponse(pub ErrorOrNoticeFields);
 
 #[derive(Debug, PartialEq)]
-pub struct NoticeResponse(ErrorOrNoticeFields);
+pub struct NoticeResponse(pub ErrorOrNoticeFields);
 
 impl ErrorResponse {
     pub const TYPE_BYTE: u8 = b'E';
@@ -34,24 +34,24 @@ impl MsgDecode for NoticeResponse {
 #[derive(Default, PartialEq)]
 pub struct ErrorOrNoticeFields {
     // https://www.postgresql.org/docs/current/protocol-error-fields.html
-    localized_severity: Option<Vec<u8>>,
-    severity: Option<Vec<u8>>,
-    code: Option<Vec<u8>>,
-    message: Option<Vec<u8>>,
-    detail: Option<Vec<u8>>,
-    hint: Option<Vec<u8>>,
-    position: Option<Vec<u8>>,
-    internal_position: Option<Vec<u8>>,
-    internal_query: Option<Vec<u8>>,
-    where_: Option<Vec<u8>>,
-    schema: Option<Vec<u8>>,
-    table: Option<Vec<u8>>,
-    column: Option<Vec<u8>>,
-    data_type: Option<Vec<u8>>,
-    constraint: Option<Vec<u8>>,
-    file: Option<Vec<u8>>,
-    line: Option<Vec<u8>>,
-    routine: Option<Vec<u8>>,
+    pub localized_severity: Option<Vec<u8>>,
+    pub severity: Option<Vec<u8>>,
+    pub code: Option<Vec<u8>>,
+    pub message: Option<Vec<u8>>,
+    pub detail: Option<Vec<u8>>,
+    pub hint: Option<Vec<u8>>,
+    pub position: Option<Vec<u8>>,
+    pub internal_position: Option<Vec<u8>>,
+    pub internal_query: Option<Vec<u8>>,
+    pub where_: Option<Vec<u8>>,
+    pub schema: Option<Vec<u8>>,
+    pub table: Option<Vec<u8>>,
+    pub column: Option<Vec<u8>>,
+    pub data_type: Option<Vec<u8>>,
+    pub constraint: Option<Vec<u8>>,
+    pub file: Option<Vec<u8>>,
+    pub line: Option<Vec<u8>>,
+    pub routine: Option<Vec<u8>>,
 }
 
 macro_rules! fmt_opt_field {

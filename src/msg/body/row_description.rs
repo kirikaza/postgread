@@ -3,18 +3,18 @@ use ::std::fmt::{self, Debug, Formatter};
 
 #[derive(Debug, PartialEq)]
 pub struct RowDescription {
-    fields: Vec<Field>,
+    pub fields: Vec<Field>,
 }
 
 #[derive(PartialEq)]
 pub struct Field {
-    name: Vec<u8>,
-    column_oid: u32,
-    column_attr_num: u16,
-    type_oid: u32,
-    type_size: i16,  // pg_type.typlen
-    type_modifier: i32, // pg_attribute.atttypmod
-    format: Format,
+    pub name: Vec<u8>,
+    pub column_oid: u32,
+    pub column_attr_num: u16,
+    pub type_oid: u32,
+    pub type_size: i16,  // pg_type.typlen
+    pub type_modifier: i32, // pg_attribute.atttypmod
+    pub format: Format,
 }
 
 impl Debug for Field {
