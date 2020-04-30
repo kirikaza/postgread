@@ -3,7 +3,7 @@ use ::std::fmt::{self, Debug, Formatter};
 
 #[derive(PartialEq)]
 pub struct Query (
-    Vec<u8>,
+    pub Vec<u8>
 );
 
 impl Query {

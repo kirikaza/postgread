@@ -2,7 +2,7 @@ use crate::msg::util::decode::{*, Problem::*};
 
 #[derive(Debug, PartialEq)]
 pub struct ReadyForQuery {
-    status: Status,
+    pub status: Status,
 }
 
 #[derive(Debug, PartialEq)]

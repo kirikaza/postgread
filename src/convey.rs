@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use crate::msg::body::*;
 use crate::msg::util::async_io;
 use crate::msg::util::decode::{MsgDecode, Problem as DecodeProblem};
@@ -44,13 +47,13 @@ pub enum State {
     QueryAbortedByError,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Message<'a> {
     Backend(BackendMsg<'a>),
     Frontend(FrontendMsg<'a>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum BackendMsg<'a> {
     Authentication(&'a Authentication),
     BackendKeyData(&'a BackendKeyData),
@@ -64,7 +67,7 @@ pub enum BackendMsg<'a> {
     RowDescription(&'a RowDescription),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FrontendMsg<'a> {
     Query(&'a Query),
     Initial(&'a Initial),
@@ -80,8 +83,8 @@ pub enum TlsError {
 pub async fn convey<FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>(
     frontend: FrontPlain,
     backend: BackPlain,
-    frontend_tls_provider: FrontTlsServer,
-    backend_tls_provider: BackTlsClient,
+    frontend_tls_server: FrontTlsServer,
+    backend_tls_client: BackTlsClient,
     callback: Callback,
 ) -> ConveyResult<()>
 where
@@ -93,13 +96,13 @@ where
     BackTlsClient::Tls: AsyncRead + AsyncWrite,
     Callback: Fn(Message) -> () + Send,
 {
-    Conveyor {
-        frontend: StreamWrap::Plain(frontend),
-        backend: StreamWrap::Plain(backend),
-        frontend_tls_server: frontend_tls_provider,
-        backend_tls_client: backend_tls_provider,
+    Conveyor::new(
+        frontend,
+        backend,
+        frontend_tls_server,
+        backend_tls_client,
         callback,
-    }.go().await
+    ).go().await
 }
 
 struct Conveyor<FrontPlain, BackPlain, FrontTlsServer, BackTlsClient, Callback>
@@ -164,8 +167,23 @@ where
     BackTlsClient: TlsClient<BackPlain> + Send,
     FrontTlsServer::Tls: ConveyReader + ConveyWriter,
     BackTlsClient::Tls: ConveyReader + ConveyWriter,
-    Callback: Fn(Message) -> () + Send,
+    Callback: FnMut(Message) -> () + Send,
 {
+    fn new(
+        frontend: FrontPlain,
+        backend: BackPlain,
+        frontend_tls_server: FrontTlsServer,
+        backend_tls_client: BackTlsClient,
+        callback: Callback,
+    ) -> Self {
+        Conveyor {
+            frontend: StreamWrap::Plain(frontend),
+            backend: StreamWrap::Plain(backend),
+            frontend_tls_server,
+            backend_tls_client,
+            callback,
+        }
+    }
     #[allow(clippy::cognitive_complexity)]
     async fn go(&mut self) -> ConveyResult<()> {
         let mut state = match read_frontend_through!(<Initial>, self) {
@@ -182,6 +200,9 @@ where
         };
         use TypeByte::*;
         loop {
+            if cfg!(test) {
+                eprintln!("conveyor state is {:?}", state);
+            }
             let type_byte = self.read_type_byte_from_both().await?;
             state = match type_byte {
                 Backend(Authentication::TYPE_BYTE) => match state {
@@ -315,26 +336,28 @@ where
 
     // util:
 
-    fn callback_backend(&self, wrap: BackendMsg<'a>) {
+    fn callback_backend(&mut self, wrap: BackendMsg<'a>) {
         (self.callback)(Message::Backend(wrap));
     }
 
-    fn callback_frontend(&self, wrap: FrontendMsg<'a>) {
+    fn callback_frontend(&mut self, wrap: FrontendMsg<'a>) {
         (self.callback)(Message::Frontend(wrap));
     }
 
-    async fn read_backend<Msg: MsgDecode>(&mut self) -> ConveyResult<(Vec<u8>, Msg)> {
+    async fn read_backend<Msg>(&mut self) -> ConveyResult<(Vec<u8>, Msg)>
+    where Msg: 'static + MsgDecode {
         unwrap_stream!(&mut self.backend, Self::read_msg_mapping_err).await
     }
 
-    async fn read_frontend<Msg: MsgDecode>(&mut self) -> ConveyResult<(Vec<u8>, Msg)> {
+    async fn read_frontend<Msg>(&mut self) -> ConveyResult<(Vec<u8>, Msg)>
+    where Msg: 'static + MsgDecode {
         unwrap_stream!(&mut self.frontend, Self::read_msg_mapping_err).await
     }
 
     async fn read_msg_mapping_err<R, Msg>(reader: &mut R) -> ConveyResult<(Vec<u8>, Msg)>
     where
         R: ConveyReader,
-        Msg: MsgDecode,
+        Msg: 'static + MsgDecode,
     {
         let ReadData { bytes, msg_result } = reader.read_msg().await.map_err(|read_err|
             match read_err {
@@ -463,14 +486,17 @@ impl<Plain, Tls> StreamWrap<Plain, Tls> {
 
 #[async_trait]
 trait ConveyReader : Send + Unpin {
-    async fn read_msg<Msg: MsgDecode>(&mut self) -> ReadResult<Msg>;
+    async fn read_msg<Msg>(&mut self) -> ReadResult<Msg>
+    where Msg: 'static + MsgDecode;
+
     async fn read_type_byte(&mut self) -> IoResult<u8>;
 }
 
 #[async_trait]
 impl<R> ConveyReader for R
-    where R: AsyncRead + Send + Unpin {
-    async fn read_msg<Msg: MsgDecode>(&mut self) -> ReadResult<Msg> {
+where R: AsyncRead + Send + Unpin {
+    async fn read_msg<Msg>(&mut self) -> ReadResult<Msg>
+    where Msg: 'static + MsgDecode {
         read_msg(self).await
     }
 
@@ -486,7 +512,7 @@ trait ConveyWriter : Send + Unpin {
 
 #[async_trait]
 impl<W> ConveyWriter for W
-    where W: AsyncWrite + Send + Unpin {
+where W: AsyncWrite + Send + Unpin {
     async fn write_bytes(&mut self, bytes: &[u8]) -> IoResult<()> {
         self.write_all(bytes).await
     }

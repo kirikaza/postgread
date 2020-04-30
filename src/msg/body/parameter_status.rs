@@ -3,8 +3,8 @@ use ::std::fmt::{self, Debug, Formatter};
 
 #[derive(PartialEq)]
 pub struct ParameterStatus {
-    name: Vec<u8>,
-    value: Vec<u8>,
+    pub name: Vec<u8>,
+    pub value: Vec<u8>,
 }
 
 impl ParameterStatus {

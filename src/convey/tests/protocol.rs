@@ -1,0 +1,282 @@
+use super::fake_stream::{TwoFakeStreams};
+use super::fake_tls::*;
+use super::new_msg::*;
+
+use crate::convey::{Conveyor, Message};
+
+use ::async_std::task;
+use ::std::iter::Iterator;
+
+macro_rules! backend {
+    (
+        $module:ident::$func:ident( $( $arg:expr ),* ),
+        $conveyed:ident,
+        $fake_streams:ident
+    ) => {
+        $fake_streams.push_backend($module::$func( $( $arg, )* ));
+        let msg_holder_ = $module::$func( $( $arg, )* );
+        $conveyed.push(Message::Backend($module::BackendMsg(&msg_holder_)));
+    }
+}
+
+macro_rules! frontend {
+    (
+        $module:ident::$func:ident( $( $arg:expr ),* ),
+        $conveyed:ident,
+        $fake_streams:ident
+    ) => {
+        $fake_streams.push_frontend($module::$func( $( $arg, )* ));
+        let msg_holder_ = $module::$func( $( $arg, )* );
+        $conveyed.push(Message::Frontend($module::FrontendMsg(&msg_holder_)));
+    }
+}
+
+
+#[test]
+fn cancel() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::cancel(11, 12), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn error_after_startup() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn error_after_auth_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn error_after_param_status() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(parameter_status::new("param1", "value A"), conveyed, streams);
+    backend!(parameter_status::new("param2", "value B"), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn error_after_backend_key() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(parameter_status::new("param1", "value A"), conveyed, streams);
+    backend!(parameter_status::new("param2", "value B"), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn error_after_ready() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(parameter_status::new("param1", "value A"), conveyed, streams);
+    backend!(parameter_status::new("param2", "value B"), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn ready_and_terminate() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(parameter_status::new("param1", "value A"), conveyed, streams);
+    backend!(parameter_status::new("param2", "value B"), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn ready_and_terminate_with_notices() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(notice_response::new("first"), conveyed, streams);
+    backend!(parameter_status::new("param1", "value A"), conveyed, streams);
+    backend!(notice_response::new("second"), conveyed, streams);
+    backend!(parameter_status::new("param2", "value B"), conveyed, streams);
+    backend!(notice_response::new("third"), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+     backend!(notice_response::new("forth"), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    backend!(notice_response::new("fifth"), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn empty_query() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(query::new(""), conveyed, streams);
+    backend!(empty_query_response::new(()), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn simple_select_query() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(query::new("select 2+3 as sum, null as nil"), conveyed, streams);
+    backend!(notice_response::new("first"), conveyed, streams);
+    backend!(row_description::fields(&["sum", "nil"]), conveyed, streams);
+    backend!(notice_response::new("second"), conveyed, streams);
+    backend!(data_row::columns(&[Some("5"), None]), conveyed, streams);
+    backend!(notice_response::new("third"), conveyed, streams);
+    backend!(command_complete::new("SELECT 1"), conveyed, streams);
+    backend!(notice_response::new("forth"), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    backend!(notice_response::new("fifth"), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn simple_select_query_with_notices() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(query::new("select 2+3 as sum, null as nil"), conveyed, streams);
+    backend!(row_description::fields(&["sum", "nil"]), conveyed, streams);
+    backend!(data_row::columns(&[Some("5"), None]), conveyed, streams);
+    backend!(command_complete::new("SELECT 1"), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn single_changing_query() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(query::new("insert values('new') into t1"), conveyed, streams);
+    backend!(command_complete::new("INSERT 1"), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn multiple_statements_in_query() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(query::new("select 2+3 as sum; update t1 set key=0; delete from t1; select null as nil"), conveyed, streams);
+    backend!(row_description::fields(&["sum"]), conveyed, streams);
+    backend!(data_row::columns(&[Some("5"), None]), conveyed, streams);
+    backend!(command_complete::new("SELECT 1"), conveyed, streams);
+    backend!(command_complete::new("UPDATE 9000"), conveyed, streams);
+    backend!(command_complete::new("DELETE 9000"), conveyed, streams);
+    backend!(row_description::fields(&["nil"]), conveyed, streams);
+    backend!(data_row::columns(&[Some("null"), None]), conveyed, streams);
+    backend!(command_complete::new("SELECT 1"), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn multiple_statements_in_query_with_error_between() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(query::new("select 2+3 as sum; update t1 set key=0; delete from t1; select null as nil"), conveyed, streams);
+    backend!(row_description::fields(&["sum"]), conveyed, streams);
+    backend!(data_row::columns(&[Some("5"), None]), conveyed, streams);
+    backend!(command_complete::new("SELECT 1"), conveyed, streams);
+    backend!(error_response::new("relation \"t1\" does not exist"), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn multiple_queries_with_error_between() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(query::new("update t1 set key=0"), conveyed, streams);
+    backend!(error_response::new("relation \"t1\" does not exist"), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(query::new("select 2+3 as sum"), conveyed, streams);
+    backend!(row_description::fields(&["sum"]), conveyed, streams);
+    backend!(data_row::columns(&[Some("5")]), conveyed, streams);
+    backend!(command_complete::new("SELECT 1"), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+fn test_convey(
+    expected_conveyed: Vec<Message>,
+    mut fake_streams: TwoFakeStreams,
+) -> () {
+    let mut expected_conveyed = expected_conveyed.iter();
+    let mut conveyor = Conveyor::new(
+        fake_streams.frontend_stream(),
+        fake_streams.backend_stream(),
+        FakeTlsServer(),
+        FakeTlsClient(),
+        |msg| { assert_eq!(expected_conveyed.next(), Some(&msg)) },
+    );
+    let res = task::block_on(conveyor.go());
+    assert_ok!(res);
+    let unread = fake_streams.untaken();
+    assert!(unread.is_empty(), "untaken messages {:?}", unread);
+    assert!(expected_conveyed.len() == 0,
+        "expected but not conveyed {:?}", expected_conveyed.collect::<Vec<_>>()
+    );
+}

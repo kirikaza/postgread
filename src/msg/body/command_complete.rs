@@ -3,7 +3,7 @@ use ::std::fmt::{self, Debug, Formatter};
 
 #[derive(PartialEq)]
 pub struct CommandComplete {
-    tag: Vec<u8>,
+    pub tag: Vec<u8>,
 }
 impl Debug for CommandComplete {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {

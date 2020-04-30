@@ -10,14 +10,14 @@ pub enum Initial {
 
 #[derive(Debug, PartialEq)]
 pub struct Cancel {
-    process_id: u32,
-    secret_key: u32,
+    pub process_id: u32,
+    pub secret_key: u32,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Startup {
-    version: Version,
-    params: Vec<StartupParam>,
+    pub version: Version,
+    pub params: Vec<StartupParam>,
 }
 
 impl MsgDecode for Initial {
@@ -42,8 +42,8 @@ impl MsgDecode for Initial {
 
 #[derive(Debug, PartialEq)]
 pub struct Version {
-    major: u16,
-    minor: u16,
+    pub major: u16,
+    pub minor: u16,
 }
 impl Version {
     fn decode(bytes: &mut BytesSource) -> DecodeResult<Self> {
@@ -55,8 +55,8 @@ impl Version {
 
 #[derive(PartialEq)]
 pub struct StartupParam {
-    name: Vec<u8>,
-    value: Vec<u8>,
+    pub name: Vec<u8>,
+    pub value: Vec<u8>,
 }
 impl StartupParam {
     fn decode_many(bytes: &mut BytesSource) -> DecodeResult<Vec<Self>> {
