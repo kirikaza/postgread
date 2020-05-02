@@ -190,7 +190,23 @@ where
             Initial::Startup(_) => State::Startup,
             Initial::Cancel(_) => return Ok(()),
             Initial::TLS => {
-                self.process_tls_request().await?;
+                let tls_response = self.read_backend_type_byte().await?;
+                match tls_response {
+                    TLS_NOT_SUPPORTED => {},
+                    TLS_SUPPORTED => {
+                        switch_client_to_tls(&mut self.backend, &self.backend_tls_client).await?;
+                    },
+                    ErrorResponse::TYPE_BYTE => {
+                        // "This would only occur if the server predates the addition of SSL support to PostgreSQL"
+                        read_backend_through!(<ErrorResponse>, self);
+                        return Ok(())
+                    }
+                    _ => {
+                        return Err(UnknownType(TypeByte::Backend(tls_response)))
+                    },
+                }
+                self.write_frontend(&[TLS_SUPPORTED]).await?;
+                switch_server_to_tls(&mut self.frontend, &self.frontend_tls_server).await?;
                 match read_frontend_through!(<Initial>, self) {
                     Initial::Startup(_) => State::Startup,
                     Initial::Cancel(_) => return Ok(()),
@@ -303,28 +319,6 @@ where
                 _ => Err(UnknownType(type_byte)),
             }?
         }
-    }
-
-    async fn process_tls_request(&mut self) -> ConveyResult<()> {
-        let tls_response = self.read_backend_type_byte().await?;
-        const TLS_SUPPORTED: u8 = b'S';
-        const TLS_NOT_SUPPORTED: u8 = b'N';
-        match tls_response {
-            TLS_NOT_SUPPORTED => {},
-            TLS_SUPPORTED => {
-                switch_client_to_tls(&mut self.backend, &self.backend_tls_client).await?;
-            },
-            ErrorResponse::TYPE_BYTE => {
-                // "This would only occur if the server predates the addition of SSL support to PostgreSQL"
-                read_backend_through!(<ErrorResponse>, self);
-                return Ok(())
-            }
-            _ => {
-                return Err(UnknownType(TypeByte::Backend(tls_response)))
-            },
-        }
-        self.write_frontend(&[TLS_SUPPORTED]).await?;
-        switch_server_to_tls(&mut self.frontend, &self.frontend_tls_server).await
     }
 
     async fn process_authentication(&mut self, authentication: Authentication) -> ConveyResult<State> {
@@ -517,3 +511,6 @@ where W: AsyncWrite + Send + Unpin {
         self.write_all(bytes).await
     }
 }
+
+const TLS_SUPPORTED: u8 = b'S';
+const TLS_NOT_SUPPORTED: u8 = b'N';
