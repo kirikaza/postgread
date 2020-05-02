@@ -41,11 +41,75 @@ fn cancel() {
 }
 
 #[test]
+fn cancel_when_backend_accepts_tls() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::tls(()), conveyed, streams);
+    streams.backend_accepts_tls();
+    streams.frontend_starts_tls();
+    frontend!(initial::cancel(11, 12), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn cancel_when_backend_rejects_tls() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::tls(()), conveyed, streams);
+    streams.backend_rejects_tls();
+    streams.frontend_starts_tls();
+    frontend!(initial::cancel(11, 12), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn cancel_when_backend_does_not_know_tls() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::tls(()), conveyed, streams);
+    backend!(error_response::new("too old backend"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
 fn error_after_startup() {
     let mut streams = TwoFakeStreams::new();
     let mut conveyed = vec![];
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn error_after_startup_when_backend_accepts_tls() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::tls(()), conveyed, streams);
+    streams.backend_accepts_tls();
+    streams.frontend_starts_tls();
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn error_after_startup_when_backend_rejects_tls() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::tls(()), conveyed, streams);
+    streams.backend_rejects_tls();
+    streams.frontend_starts_tls();
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn error_after_startup_when_backend_does_not_know_tls() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::tls(()), conveyed, streams);
+    backend!(error_response::new("too old backend"), conveyed, streams);
     test_convey(conveyed, streams);
 }
 

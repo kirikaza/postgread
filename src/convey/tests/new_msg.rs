@@ -113,6 +113,10 @@ pub mod initial {
             secret_key,
         })
     }
+
+    pub fn tls(_: ()) -> Initial {
+        Initial::TLS
+    }
 }
 
 pub mod parameter_status {

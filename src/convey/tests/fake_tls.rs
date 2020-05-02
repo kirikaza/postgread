@@ -8,36 +8,40 @@ pub struct FakeTlsClient();
 
 pub struct FakeTlsServer();
 
+pub struct FakeTlsStream<Plain> {
+    pub plain: Plain,
+}
+
 #[derive(Debug)]
 pub struct FakeTlsError();
 
 impl<Plain> TlsProvider<Plain> for FakeTlsClient
 where Plain: Send + Unpin {
-    type Tls = Plain;
+    type Tls = FakeTlsStream<Plain>;
     type Error = FakeTlsError;
 }
 
 impl<Plain> TlsProvider<Plain> for FakeTlsServer
 where Plain: Send + Unpin {
-    type Tls = Plain;
+    type Tls = FakeTlsStream<Plain>;
     type Error = FakeTlsError;
 }
 
 #[async_trait]
 impl<Plain> TlsClient<Plain> for FakeTlsClient
 where Plain: Send + Unpin {
-    async fn connect(&self, _plain: Plain) -> Result<Plain, FakeTlsError>
+    async fn connect(&self, plain: Plain) -> Result<FakeTlsStream<Plain>, FakeTlsError>
     where Plain: 'async_trait {
-        unimplemented!()
+        Ok(FakeTlsStream { plain })
     }
 }
 
 #[async_trait]
 impl<Plain> TlsServer<Plain> for FakeTlsServer
 where Plain: Send + Unpin {
-    async fn accept(&self, _plain: Plain) -> Result<Plain, FakeTlsError>
+    async fn accept(&self, plain: Plain) -> Result<FakeTlsStream<Plain>, FakeTlsError>
     where Plain: 'async_trait {
-        unimplemented!()
+        Ok(FakeTlsStream { plain })
     }
 }
 
