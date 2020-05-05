@@ -81,6 +81,16 @@ fn error_after_startup() {
 }
 
 #[test]
+fn negotiate_and_error_after_startup() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(negotiate_protocol_version::new(21, &["_pq_x", "_pq_y"]), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
 fn error_after_startup_when_backend_accepts_tls() {
     let mut streams = TwoFakeStreams::new();
     let mut conveyed = vec![];
@@ -119,6 +129,29 @@ fn error_after_auth_ok() {
     let mut conveyed = vec![];
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn negotiate_and_error_after_auth_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(negotiate_protocol_version::new(21, &["_pq_x", "_pq_y"]), conveyed, streams);
+    backend!(error_response::new("something goes wrong"), conveyed, streams);
+    test_convey(conveyed, streams);
+}
+
+#[test]
+fn negotiate_before_and_after_auth_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(negotiate_protocol_version::new(21, &["_pq_x", "_pq_y"]), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(negotiate_protocol_version::new(22, &["_pq_z", "_pq_t"]), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
     test_convey(conveyed, streams);
 }
