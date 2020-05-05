@@ -2,7 +2,7 @@ use super::fake_stream::{TwoFakeStreams};
 use super::fake_tls::*;
 use super::new_msg::*;
 
-use crate::convey::{Conveyor, Message};
+use crate::convey::{ConveyError, ConveyResult, Conveyor, Message};
 
 use ::async_std::task;
 use ::std::iter::Iterator;
@@ -31,13 +31,25 @@ macro_rules! frontend {
     }
 }
 
+macro_rules! assert_ok {
+    ($res:expr) => {
+        assert!(matches!($res, Ok(())))
+    }
+}
+
+macro_rules! assert_err {
+    ($pattern:pat, $res:expr) => {{
+        use ConveyError::*;
+        assert!(matches!($res, Err($pattern)))
+    }}
+}
 
 #[test]
 fn cancel() {
     let mut streams = TwoFakeStreams::new();
     let mut conveyed = vec![];
     frontend!(initial::cancel(11, 12), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -48,7 +60,7 @@ fn cancel_when_backend_accepts_tls() {
     streams.backend_accepts_tls();
     streams.frontend_starts_tls();
     frontend!(initial::cancel(11, 12), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -59,7 +71,7 @@ fn cancel_when_backend_rejects_tls() {
     streams.backend_rejects_tls();
     streams.frontend_starts_tls();
     frontend!(initial::cancel(11, 12), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -68,7 +80,7 @@ fn cancel_when_backend_does_not_know_tls() {
     let mut conveyed = vec![];
     frontend!(initial::tls(()), conveyed, streams);
     backend!(error_response::new("too old backend"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -77,7 +89,7 @@ fn error_after_startup() {
     let mut conveyed = vec![];
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -87,7 +99,7 @@ fn negotiate_and_error_after_startup() {
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(negotiate_protocol_version::new(21, &["_pq_x", "_pq_y"]), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -99,7 +111,7 @@ fn error_after_startup_when_backend_accepts_tls() {
     streams.frontend_starts_tls();
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -111,7 +123,7 @@ fn error_after_startup_when_backend_rejects_tls() {
     streams.frontend_starts_tls();
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -120,7 +132,7 @@ fn error_after_startup_when_backend_does_not_know_tls() {
     let mut conveyed = vec![];
     frontend!(initial::tls(()), conveyed, streams);
     backend!(error_response::new("too old backend"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -130,7 +142,16 @@ fn error_after_auth_ok() {
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(authentication::ok(()), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_kerberos_unsupported() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::kerberos_v5(()), conveyed, streams);
+    assert_err!(Unsupported(_), test_convey(conveyed, streams));
 }
 
 #[test]
@@ -141,7 +162,7 @@ fn negotiate_and_error_after_auth_ok() {
     backend!(authentication::ok(()), conveyed, streams);
     backend!(negotiate_protocol_version::new(21, &["_pq_x", "_pq_y"]), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -153,7 +174,7 @@ fn negotiate_before_and_after_auth_ok() {
     backend!(authentication::ok(()), conveyed, streams);
     backend!(negotiate_protocol_version::new(22, &["_pq_z", "_pq_t"]), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -165,7 +186,7 @@ fn error_after_param_status() {
     backend!(parameter_status::new("param1", "value A"), conveyed, streams);
     backend!(parameter_status::new("param2", "value B"), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -178,7 +199,7 @@ fn error_after_backend_key() {
     backend!(parameter_status::new("param2", "value B"), conveyed, streams);
     backend!(backend_key_data::new(21, 22), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -192,7 +213,7 @@ fn error_after_ready() {
     backend!(backend_key_data::new(21, 22), conveyed, streams);
     backend!(ready_for_query::idle(()), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -206,7 +227,7 @@ fn ready_and_terminate() {
     backend!(backend_key_data::new(21, 22), conveyed, streams);
     backend!(ready_for_query::idle(()), conveyed, streams);
     frontend!(terminate::new(()), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -225,7 +246,7 @@ fn ready_and_terminate_with_notices() {
     backend!(ready_for_query::idle(()), conveyed, streams);
     backend!(notice_response::new("fifth"), conveyed, streams);
     frontend!(terminate::new(()), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -240,7 +261,7 @@ fn empty_query() {
     backend!(empty_query_response::new(()), conveyed, streams);
     backend!(ready_for_query::idle(()), conveyed, streams);
     frontend!(terminate::new(()), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -262,7 +283,7 @@ fn simple_select_query() {
     backend!(ready_for_query::idle(()), conveyed, streams);
     backend!(notice_response::new("fifth"), conveyed, streams);
     frontend!(terminate::new(()), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -279,7 +300,7 @@ fn simple_select_query_with_notices() {
     backend!(command_complete::new("SELECT 1"), conveyed, streams);
     backend!(ready_for_query::idle(()), conveyed, streams);
     frontend!(terminate::new(()), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -294,7 +315,7 @@ fn single_changing_query() {
     backend!(command_complete::new("INSERT 1"), conveyed, streams);
     backend!(ready_for_query::idle(()), conveyed, streams);
     frontend!(terminate::new(()), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -316,7 +337,7 @@ fn multiple_statements_in_query() {
     backend!(command_complete::new("SELECT 1"), conveyed, streams);
     backend!(ready_for_query::idle(()), conveyed, streams);
     frontend!(terminate::new(()), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -334,7 +355,7 @@ fn multiple_statements_in_query_with_error_between() {
     backend!(error_response::new("relation \"t1\" does not exist"), conveyed, streams);
     backend!(ready_for_query::idle(()), conveyed, streams);
     frontend!(terminate::new(()), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 #[test]
@@ -354,13 +375,13 @@ fn multiple_queries_with_error_between() {
     backend!(command_complete::new("SELECT 1"), conveyed, streams);
     backend!(ready_for_query::idle(()), conveyed, streams);
     frontend!(terminate::new(()), conveyed, streams);
-    test_convey(conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
 }
 
 fn test_convey(
     expected_conveyed: Vec<Message>,
     mut fake_streams: TwoFakeStreams,
-) -> () {
+) -> ConveyResult<()> {
     let mut expected_conveyed = expected_conveyed.iter();
     let mut conveyor = Conveyor::new(
         fake_streams.frontend_stream(),
@@ -369,11 +390,11 @@ fn test_convey(
         FakeTlsClient(),
         |msg| { assert_eq!(expected_conveyed.next(), Some(&msg)) },
     );
-    let res = task::block_on(conveyor.go());
-    assert_ok!(res);
+    let convey_result = task::block_on(conveyor.go());
     let unread = fake_streams.untaken();
     assert!(unread.is_empty(), "untaken messages {:?}", unread);
     assert!(expected_conveyed.len() == 0,
         "expected but not conveyed {:?}", expected_conveyed.collect::<Vec<_>>()
     );
+    convey_result
 }

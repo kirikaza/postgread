@@ -11,6 +11,10 @@ pub mod authentication {
     pub fn ok(_: ()) -> Authentication {
         Authentication::Ok
     }
+
+    pub fn kerberos_v5(_: ()) -> Authentication {
+        Authentication::KerberosV5
+    }
 }
 
 pub mod backend_key_data {

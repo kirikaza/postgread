@@ -24,6 +24,7 @@ pub enum ConveyError {
     Todo(String),
     UnexpectedType(TypeByte, State),
     UnknownType(TypeByte),
+    Unsupported(&'static str),
 }
 
 pub type ConveyResult<T> = Result<T, ConveyError>;
@@ -335,6 +336,10 @@ where
     async fn process_authentication(&mut self, authentication: Authentication) -> ConveyResult<State> {
         match authentication {
             Authentication::Ok => Ok(State::Authenticated),
+            Authentication::KerberosV5 => Err(Unsupported(concat!(
+                "AuthenticationKerberosV5 is unsupported after PostgreSQL 9.3",
+                " which in turn is unsupported by PostgreSQL maintainers",
+            ))),
             _ => Err(Todo("Authentication::TYPE_BYTE != Ok".into())),
         }
     }
