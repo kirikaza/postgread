@@ -119,6 +119,19 @@ pub mod initial {
     }
 }
 
+pub mod negotiate_protocol_version {
+    use crate::msg::body::negotiate_protocol_version::*;
+    export_wrapper!(BackendMsg::NegotiateProtocolVersion);
+
+    pub fn new(newest_backend_minor: u32, unrecognized_options: &[&'static str]) -> NegotiateProtocolVersion {
+        let unrecognized_options = unrecognized_options.iter().map(|str| (*str).into()).collect();
+        NegotiateProtocolVersion {
+            newest_backend_minor,
+            unrecognized_options,
+        }
+    }
+}
+
 pub mod parameter_status {
     use crate::msg::body::parameter_status::*;
     export_wrapper!(BackendMsg::ParameterStatus);

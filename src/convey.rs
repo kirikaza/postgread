@@ -61,6 +61,7 @@ pub enum BackendMsg<'a> {
     DataRow(&'a DataRow),
     EmptyQueryResponse(&'a EmptyQueryResponse),
     ErrorResponse(&'a ErrorResponse),
+    NegotiateProtocolVersion(&'a NegotiateProtocolVersion),
     NoticeResponse(&'a NoticeResponse),
     ParameterStatus(&'a ParameterStatus),
     ReadyForQuery(&'a ReadyForQuery),
@@ -271,6 +272,16 @@ where
                             Ok(State::QueryAbortedByError)
                         },
                         _ => return Ok(())
+                    }
+                },
+                Backend(NegotiateProtocolVersion::TYPE_BYTE) => {
+                    match state {
+                        State::Startup |
+                        State::Authenticated => {
+                            read_backend_through!(<NegotiateProtocolVersion>, self);
+                            Ok(state)
+                        }
+                        _ => Err(UnexpectedType(type_byte, state)),
                     }
                 },
                 Backend(NoticeResponse::TYPE_BYTE) => {
