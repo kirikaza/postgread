@@ -2,7 +2,7 @@ use super::super::*;
 use crate::convey::tests::fake_tls::*;
 
 use ::async_trait::async_trait;
-use ::std::any::Any;
+use ::std::any::{Any, type_name};
 use ::std::collections::VecDeque;
 use ::std::fmt::{self, Debug, Formatter};
 use ::std::io::ErrorKind::UnexpectedEof;
@@ -22,7 +22,6 @@ pub struct FakeStream {
     items: Arc<Mutex<VecDeque<TwoFakeStreamsItem>>>,
 }
 
-#[derive(Debug)]
 pub struct TwoFakeStreamsItem {
     side: FakeStreamSide,
     data_form: FakeDataForm,
@@ -36,7 +35,10 @@ pub enum FakeDataForm {
 
 pub enum FakeData {
     TypeByte(u8),
-    Body(Box<dyn Any + Send>),
+    Body {
+        any: Box<dyn Any + Send>,
+        type_name: &'static str,  // for debug output
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -100,7 +102,10 @@ impl TwoFakeStreams {
 
     fn push_body<Msg>(&mut self, side: FakeStreamSide, body: Msg)
     where Msg: 'static + MsgDecode + Send {
-        self.push_data(side, Body(Box::new(body)))
+        self.push_data(side, Body {
+            any: Box::new(body),
+            type_name: type_name::<Msg>().split("::").last().unwrap(),
+        })
     }
 
     fn push_data(&mut self, side: FakeStreamSide, data: FakeData) {
@@ -174,8 +179,8 @@ impl ConveyWriter for FakeTlsStream<FakeStream> {
 fn unwrap_msg_body<Msg>(side: FakeStreamSide, data: IoResult<FakeData>) -> ReadResult<Msg>
 where Msg: 'static + MsgDecode {
     match data.map_err(ReadError::IoError)? {
-        Body(any) => {
-            let msg: Box<Msg> = any.downcast().expect(&format!("fake {:?} gave a message of unexpected type", side));
+        Body { any, type_name } => {
+            let msg: Box<Msg> = any.downcast().expect(&format!("fake {:?} gave a message of unexpected type {}", side, type_name));
             Ok(ReadData { bytes: vec![], msg_result: Ok(*msg) })
         }
         TypeByte(_) => panic!("fake {:?} gave a type byte instead of a message", side),
@@ -185,7 +190,7 @@ where Msg: 'static + MsgDecode {
 fn unwrap_type_byte(side: FakeStreamSide, data: IoResult<FakeData>) -> IoResult<u8> {
     match data? {
         TypeByte(type_byte) => Ok(type_byte),
-        Body(_) => panic!("fake {:?} gave a message instead of a type byte", side),
+        Body { type_name, .. } => panic!("fake {:?} gave a {} message instead of a type byte", side, type_name),
     }
 }
 
@@ -232,11 +237,17 @@ impl Stream for FakeStream {
 
 impl Unpin for FakeStream {}
 
+impl Debug for TwoFakeStreamsItem {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "TwoFakeStreams::Item({:?}({:?}))", self.side, self.data_form)
+    }
+}
+
 impl Debug for FakeData {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         match self {
             TypeByte(type_byte) => write!(f, "TypeByte('{}'={})", *type_byte as char, type_byte),
-            Body(any) => write!(f, "Body({:?})", any),
+            Body { type_name, .. } => write!(f, "Body<{}>", type_name),
         }
     }
 }

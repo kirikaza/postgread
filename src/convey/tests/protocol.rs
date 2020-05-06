@@ -75,7 +75,7 @@ fn cancel_when_backend_rejects_tls() {
 }
 
 #[test]
-fn cancel_when_backend_does_not_know_tls() {
+fn backend_does_not_know_tls() {
     let mut streams = TwoFakeStreams::new();
     let mut conveyed = vec![];
     frontend!(initial::tls(()), conveyed, streams);
@@ -127,21 +127,35 @@ fn error_after_startup_when_backend_rejects_tls() {
 }
 
 #[test]
-fn error_after_startup_when_backend_does_not_know_tls() {
-    let mut streams = TwoFakeStreams::new();
-    let mut conveyed = vec![];
-    frontend!(initial::tls(()), conveyed, streams);
-    backend!(error_response::new("too old backend"), conveyed, streams);
-    assert_ok!(test_convey(conveyed, streams));
-}
-
-#[test]
-fn error_after_auth_ok() {
+fn auth_ok_and_error() {
     let mut streams = TwoFakeStreams::new();
     let mut conveyed = vec![];
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(authentication::ok(()), conveyed, streams);
     backend!(error_response::new("something goes wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_cleartext_with_correct_password() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::cleartext_password(()), conveyed, streams);
+    frontend!(password::new("correct"), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_cleartext_with_wrong_password() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::cleartext_password(()), conveyed, streams);
+    frontend!(password::new("wrong"), conveyed, streams);
+    backend!(error_response::new("wrong password"), conveyed, streams);
     assert_ok!(test_convey(conveyed, streams));
 }
 
