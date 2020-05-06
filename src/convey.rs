@@ -38,6 +38,8 @@ pub enum TypeByte {
 #[derive(Debug)]
 pub enum State {
     Startup,
+    AskedCleartextPassword,
+    GotCleartextPassword,
     Authenticated,
     GotAllBackendParams,
     ReadyForQuery,
@@ -71,8 +73,9 @@ pub enum BackendMsg<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum FrontendMsg<'a> {
-    Query(&'a Query),
     Initial(&'a Initial),
+    Password(&'a Password),
+    Query(&'a Query),
     Terminate(&'a Terminate),
 }
 
@@ -223,13 +226,9 @@ where
             }
             let type_byte = self.read_type_byte_from_both().await?;
             state = match type_byte {
-                Backend(Authentication::TYPE_BYTE) => match state {
-                    State::Startup => {
-                        let authentication = read_backend_through!(<Authentication>, self);
-                        self.process_authentication(authentication).await
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
-                }
+                Backend(Authentication::TYPE_BYTE) => {
+                    self.process_authentication(type_byte, state).await
+                },
                 Backend(BackendKeyData::TYPE_BYTE) => match state {
                     State::Authenticated => {
                         read_backend_through!(<BackendKeyData>, self);
@@ -296,6 +295,13 @@ where
                     },
                     _ => Err(UnexpectedType(type_byte, state)),
                 },
+                Frontend(Password::TYPE_BYTE) => match state {
+                    State::AskedCleartextPassword => {
+                        read_frontend_through!(<Password>, self);
+                        Ok(State::GotCleartextPassword)
+                    },
+                    _ => Err(UnexpectedType(type_byte, state)),
+                },
                 Frontend(Query::TYPE_BYTE) => match state {
                     State::ReadyForQuery => {
                         read_frontend_through!(<Query>, self);
@@ -333,14 +339,24 @@ where
         }
     }
 
-    async fn process_authentication(&mut self, authentication: Authentication) -> ConveyResult<State> {
-        match authentication {
-            Authentication::Ok => Ok(State::Authenticated),
-            Authentication::KerberosV5 => Err(Unsupported(concat!(
-                "AuthenticationKerberosV5 is unsupported after PostgreSQL 9.3",
-                " which in turn is unsupported by PostgreSQL maintainers",
-            ))),
-            _ => Err(Todo("Authentication::TYPE_BYTE != Ok".into())),
+    async fn process_authentication(&mut self, type_byte: TypeByte, state: State) -> ConveyResult<State> {
+        use Authentication as Auth;
+        let authentication = read_backend_through!(<Authentication>, self);
+        match (authentication, &state) {
+            (Auth::CleartextPassword, State::Startup) =>
+                Ok(State::AskedCleartextPassword),
+            (Auth::Ok, State::GotCleartextPassword) |
+            (Auth::Ok, State::Startup) =>
+                Ok(State::Authenticated),
+            (Auth::KerberosV5, State::Startup) =>
+                Err(Unsupported(concat!(
+                    "AuthenticationKerberosV5 is unsupported after PostgreSQL 9.3",
+                    " which in turn is unsupported by PostgreSQL maintainers",
+                ))),
+            (_, State::Startup) =>
+                Err(Todo("Authentication::* is not fully implemented yet".into())),
+            _ =>
+                Err(UnexpectedType(type_byte, state)),
         }
     }
 

@@ -12,6 +12,10 @@ pub mod authentication {
         Authentication::Ok
     }
 
+    pub fn cleartext_password(_: ()) -> Authentication {
+        Authentication::CleartextPassword
+    }
+
     pub fn kerberos_v5(_: ()) -> Authentication {
         Authentication::KerberosV5
     }
@@ -145,6 +149,15 @@ pub mod parameter_status {
             name: name.into(),
             value: value.into(),
         }
+    }
+}
+
+pub mod password {
+    use crate::msg::body::password::*;
+    export_wrapper!(FrontendMsg::Password);
+
+    pub fn new(password: &'static str) -> Password {
+        Password(password.into())
     }
 }
 
