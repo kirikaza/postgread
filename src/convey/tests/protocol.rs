@@ -160,6 +160,29 @@ fn auth_cleartext_with_wrong_password() {
 }
 
 #[test]
+fn auth_md5_with_correct_password() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::md5_password(b"salt"), conveyed, streams);
+    frontend!(password::new("md5correct"), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_md5_with_wrong_password() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::md5_password(b"salt"), conveyed, streams);
+    frontend!(password::new("md5wrong"), conveyed, streams);
+    backend!(error_response::new("wrong password"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
 fn auth_kerberos_unsupported() {
     let mut streams = TwoFakeStreams::new();
     let mut conveyed = vec![];
@@ -405,10 +428,10 @@ fn test_convey(
         |msg| { assert_eq!(expected_conveyed.next(), Some(&msg)) },
     );
     let convey_result = task::block_on(conveyor.go());
-    let unread = fake_streams.untaken();
-    assert!(unread.is_empty(), "untaken messages {:?}", unread);
     assert!(expected_conveyed.len() == 0,
         "expected but not conveyed {:?}", expected_conveyed.collect::<Vec<_>>()
     );
+    let unread = fake_streams.untaken();
+    assert!(unread.is_empty(), "untaken messages {:?}", unread);
     convey_result
 }
