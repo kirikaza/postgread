@@ -19,6 +19,10 @@ pub mod authentication {
     pub fn kerberos_v5(_: ()) -> Authentication {
         Authentication::KerberosV5
     }
+
+    pub fn md5_password(salt: &[u8; 4]) -> Authentication {
+        Authentication::MD5Password { salt: *salt }
+    }
 }
 
 pub mod backend_key_data {

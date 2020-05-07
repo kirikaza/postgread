@@ -39,7 +39,9 @@ pub enum TypeByte {
 pub enum State {
     Startup,
     AskedCleartextPassword,
+    AskedMD5Password,
     GotCleartextPassword,
+    GotMD5Password,
     Authenticated,
     GotAllBackendParams,
     ReadyForQuery,
@@ -300,6 +302,10 @@ where
                         read_frontend_through!(<Password>, self);
                         Ok(State::GotCleartextPassword)
                     },
+                    State::AskedMD5Password => {
+                        read_frontend_through!(<Password>, self);
+                        Ok(State::GotMD5Password)
+                    },
                     _ => Err(UnexpectedType(type_byte, state)),
                 },
                 Frontend(Query::TYPE_BYTE) => match state {
@@ -345,7 +351,10 @@ where
         match (authentication, &state) {
             (Auth::CleartextPassword, State::Startup) =>
                 Ok(State::AskedCleartextPassword),
+            (Auth::MD5Password{..}, State::Startup) =>
+                Ok(State::AskedMD5Password),
             (Auth::Ok, State::GotCleartextPassword) |
+            (Auth::Ok, State::GotMD5Password) |
             (Auth::Ok, State::Startup) =>
                 Ok(State::Authenticated),
             (Auth::KerberosV5, State::Startup) =>
