@@ -23,6 +23,10 @@ pub mod authentication {
     pub fn md5_password(salt: &[u8; 4]) -> Authentication {
         Authentication::MD5Password { salt: *salt }
     }
+
+    pub fn scm_credential(_: ()) -> Authentication {
+        Authentication::SCMCredential
+    }
 }
 
 pub mod backend_key_data {

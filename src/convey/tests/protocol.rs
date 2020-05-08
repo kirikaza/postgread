@@ -192,6 +192,16 @@ fn auth_kerberos_unsupported() {
 }
 
 #[test]
+fn auth_scm_credential_unsupported() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::scm_credential(()), conveyed, streams);
+    assert_err!(Unsupported(_), test_convey(conveyed, streams));
+}
+
+
+#[test]
 fn negotiate_and_error_after_auth_ok() {
     let mut streams = TwoFakeStreams::new();
     let mut conveyed = vec![];

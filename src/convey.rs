@@ -358,10 +358,15 @@ where
             (Auth::Ok, State::Startup) =>
                 Ok(State::Authenticated),
             (Auth::KerberosV5, State::Startup) =>
-                Err(Unsupported(concat!(
-                    "AuthenticationKerberosV5 is unsupported after PostgreSQL 9.3",
-                    " which in turn is unsupported by PostgreSQL maintainers",
-                ))),
+                Err(Unsupported(
+                    "AuthenticationKerberosV5 is unsupported after PostgreSQL 9.3 \
+                    which in turn is unsupported by PostgreSQL maintainers"
+                )),
+            (Auth::SCMCredential, State::Startup) =>
+                Err(Unsupported(
+                    "This message type is only issued by pre-9.1 servers. \
+                    It may eventually be removed from the protocol specification."
+                )),
             (_, State::Startup) =>
                 Err(Todo("Authentication::* is not fully implemented yet".into())),
             _ =>
