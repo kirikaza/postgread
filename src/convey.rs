@@ -39,8 +39,10 @@ pub enum TypeByte {
 pub enum State {
     Startup,
     AskedCleartextPassword,
+    AskedGSSResponse,
     AskedMD5Password,
     GotCleartextPassword,
+    GotGSSResponse,
     GotMD5Password,
     Authenticated,
     GotAllBackendParams,
@@ -75,6 +77,7 @@ pub enum BackendMsg<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum FrontendMsg<'a> {
+    GSSResponse(&'a GSSResponse),
     Initial(&'a Initial),
     Password(&'a Password),
     Query(&'a Query),
@@ -229,7 +232,7 @@ where
             let type_byte = self.read_type_byte_from_both().await?;
             state = match type_byte {
                 Backend(Authentication::TYPE_BYTE) => {
-                    self.process_authentication(type_byte, state).await
+                    self.process_backend_authentication(type_byte, state).await
                 },
                 Backend(BackendKeyData::TYPE_BYTE) => match state {
                     State::Authenticated => {
@@ -297,10 +300,15 @@ where
                     },
                     _ => Err(UnexpectedType(type_byte, state)),
                 },
+                // Frontend(GSSResponse::TYPE_BYTE) |  // the same type byte
                 Frontend(Password::TYPE_BYTE) => match state {
                     State::AskedCleartextPassword => {
                         read_frontend_through!(<Password>, self);
                         Ok(State::GotCleartextPassword)
+                    },
+                    State::AskedGSSResponse => {
+                        read_frontend_through!(<GSSResponse>, self);
+                        Ok(State::GotGSSResponse)
                     },
                     State::AskedMD5Password => {
                         read_frontend_through!(<Password>, self);
@@ -345,15 +353,21 @@ where
         }
     }
 
-    async fn process_authentication(&mut self, type_byte: TypeByte, state: State) -> ConveyResult<State> {
+    async fn process_backend_authentication(&mut self, type_byte: TypeByte, state: State) -> ConveyResult<State> {
         use Authentication as Auth;
         let authentication = read_backend_through!(<Authentication>, self);
         match (authentication, &state) {
             (Auth::CleartextPassword, State::Startup) =>
                 Ok(State::AskedCleartextPassword),
+            (Auth::GSS, State::Startup) |
+            (Auth::SSPI, State::Startup) =>
+                Ok(State::AskedGSSResponse),
+            (Auth::GSSContinue{..}, State::GotGSSResponse) =>
+                Ok(State::AskedGSSResponse),
             (Auth::MD5Password{..}, State::Startup) =>
                 Ok(State::AskedMD5Password),
             (Auth::Ok, State::GotCleartextPassword) |
+            (Auth::Ok, State::GotGSSResponse) |
             (Auth::Ok, State::GotMD5Password) |
             (Auth::Ok, State::Startup) =>
                 Ok(State::Authenticated),

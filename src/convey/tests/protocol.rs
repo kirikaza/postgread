@@ -170,6 +170,176 @@ fn auth_md5_with_wrong_password() {
 }
 
 #[test]
+fn auth_gss_single_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::gss(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_gss_single_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::gss(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_gss_double_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::gss(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb2]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf2]), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_gss_double_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::gss(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb2]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf2]), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_gss_quadruple_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::gss(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb2]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf2]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb3]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf3]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb4]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf4]), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_gss_quadruple_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::gss(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb2]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf2]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb3]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf3]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb4]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf4]), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sspi_single_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sspi(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sspi_single_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sspi(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sspi_double_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sspi(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb2]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf2]), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sspi_double_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sspi(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb2]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf2]), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sspi_quadruple_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sspi(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb2]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf2]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb3]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf3]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb4]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf4]), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sspi_quadruple_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sspi(()), conveyed, streams);
+    frontend!(gss_response::new(&[0xf1]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb2]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf2]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb3]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf3]), conveyed, streams);
+    backend!(authentication::gss_continue(&[0xb4]), conveyed, streams);
+    frontend!(gss_response::new(&[0xf4]), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
 fn auth_kerberos_unsupported() {
     let mut streams = TwoFakeStreams::new();
     let mut conveyed = vec![];
