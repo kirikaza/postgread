@@ -2,7 +2,7 @@ use super::fake_stream::{TwoFakeStreams};
 use super::fake_tls::*;
 use super::new_msg::*;
 
-use crate::convey::{ConveyError, ConveyResult, Conveyor, Message};
+use crate::convey::{ConveyError::*, ConveyResult, Conveyor, Message};
 
 use ::async_std::task;
 use ::std::iter::Iterator;
@@ -29,19 +29,6 @@ macro_rules! frontend {
         let msg_holder_ = $module::$func( $( $arg, )* );
         $conveyed.push(Message::Frontend($module::FrontendMsg(&msg_holder_)));
     }
-}
-
-macro_rules! assert_ok {
-    ($res:expr) => {
-        assert!(matches!($res, Ok(())))
-    }
-}
-
-macro_rules! assert_err {
-    ($pattern:pat, $res:expr) => {{
-        use ConveyError::*;
-        assert!(matches!($res, Err($pattern)))
-    }}
 }
 
 #[test]
@@ -188,7 +175,7 @@ fn auth_kerberos_unsupported() {
     let mut conveyed = vec![];
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(authentication::kerberos_v5(()), conveyed, streams);
-    assert_err!(Unsupported(_), test_convey(conveyed, streams));
+    assert_matches!(test_convey(conveyed, streams), Err(Unsupported(_)));
 }
 
 #[test]
@@ -197,9 +184,8 @@ fn auth_scm_credential_unsupported() {
     let mut conveyed = vec![];
     frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
     backend!(authentication::scm_credential(()), conveyed, streams);
-    assert_err!(Unsupported(_), test_convey(conveyed, streams));
+    assert_matches!(test_convey(conveyed, streams), Err(Unsupported(_)));
 }
-
 
 #[test]
 fn negotiate_and_error_after_auth_ok() {
