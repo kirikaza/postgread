@@ -16,6 +16,14 @@ pub mod authentication {
         Authentication::CleartextPassword
     }
 
+    pub fn gss(_: ()) -> Authentication {
+        Authentication::GSS
+    }
+
+    pub fn gss_continue(auth_data: &[u8]) -> Authentication {
+        Authentication::GSSContinue { auth_data: auth_data.into() }
+    }
+
     pub fn kerberos_v5(_: ()) -> Authentication {
         Authentication::KerberosV5
     }
@@ -26,6 +34,10 @@ pub mod authentication {
 
     pub fn scm_credential(_: ()) -> Authentication {
         Authentication::SCMCredential
+    }
+
+    pub fn sspi(_: ()) -> Authentication {
+        Authentication::SSPI
     }
 }
 
@@ -84,6 +96,15 @@ pub mod error_response {
             message: Some(message.into()),
             ..Default::default()
         })
+    }
+}
+
+pub mod gss_response {
+    use crate::msg::body::gss_response::*;
+    export_wrapper!(FrontendMsg::GSSResponse);
+
+    pub fn new(response: &[u8]) -> GSSResponse {
+        GSSResponse(response.into())
     }
 }
 
