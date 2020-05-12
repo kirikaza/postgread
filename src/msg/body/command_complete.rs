@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 use ::std::fmt::{self, Debug, Formatter};
 
@@ -18,7 +19,7 @@ impl CommandComplete {
 }
 
 impl MsgDecode for CommandComplete {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::CommandComplete);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let tag = bytes.take_until_null()?;

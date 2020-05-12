@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 use ::std::fmt::{self, Debug, Formatter};
 
@@ -21,7 +22,7 @@ pub struct Startup {
 }
 
 impl MsgDecode for Initial {
-    const TYPE_BYTE_OPT: Option<u8> = None;
+    const TYPE_BYTE_OPT: Option<TypeByte> = None;
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         match Version::decode(bytes)? {

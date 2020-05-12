@@ -1,3 +1,5 @@
+use crate::msg::type_byte::TypeByte;
+
 #[derive(Debug, PartialEq)]
 pub enum Problem {
     NeedMoreBytes(usize),
@@ -9,7 +11,7 @@ pub enum Problem {
 pub type DecodeResult<Ok> = std::result::Result<Ok, Problem>;
 
 pub trait MsgDecode : Sized {
-    const TYPE_BYTE_OPT: Option<u8>;
+    const TYPE_BYTE_OPT: Option<TypeByte>;
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self>;
 }

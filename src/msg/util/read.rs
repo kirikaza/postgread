@@ -55,7 +55,7 @@ fn alloc_vec<Msg: MsgDecode>(specified_len: u32) -> Vec<u8> {
 
 fn put_header<Msg: MsgDecode>(specified_len: u32, bytes_target: &mut BytesTarget) -> EncodeResult<()> {
     if let Some(type_byte) = Msg::TYPE_BYTE_OPT {
-        bytes_target.put_u8(type_byte)?;
+        bytes_target.put_u8(type_byte.into())?;
     }
     bytes_target.put_u32(specified_len)
 }
@@ -64,6 +64,7 @@ fn put_header<Msg: MsgDecode>(specified_len: u32, bytes_target: &mut BytesTarget
 mod tests {
     use super::*;
     use crate::msg::util::decode::{BytesSource, DecodeResult, MsgDecode, Problem as DecodeError};
+    use crate::msg::type_byte::TypeByte;
     use ::futures::executor::block_on;
     use ::std::fmt::Debug;
     use ::std::marker::PhantomData;
@@ -216,7 +217,7 @@ mod tests {
     fn assert_eq_bytes<T: Type>(expected: Vec<u8>, actual: Vec<u8>) {
         match T::TYPE_BYTE_OPT {
             Some(type_byte) => unsafe {
-                assert_eq!(type_byte as char, actual[0] as char);
+                assert_eq!(u8::from(type_byte) as char, actual[0] as char);
                 assert_eq!(String::from_utf8_unchecked(expected), String::from_utf8_unchecked(actual)[1..]);
             },
             None => unsafe {
@@ -259,7 +260,7 @@ mod tests {
     }
 
     impl<T: Type, B: Body> MsgDecode for TestMsg<T, B> {
-        const TYPE_BYTE_OPT: Option<u8> = T::TYPE_BYTE_OPT;
+        const TYPE_BYTE_OPT: Option<TypeByte> = T::TYPE_BYTE_OPT;
 
         fn decode_body(bytes_source: &mut BytesSource) -> DecodeResult<Self> {
             let taken = bytes_source.take_vec(B::EXPECTED_BYTES.len())?;
@@ -276,7 +277,7 @@ mod tests {
     }
 
     trait Type: Debug + PartialEq {
-        const TYPE_BYTE_OPT: Option<u8>;
+        const TYPE_BYTE_OPT: Option<TypeByte>;
     }
 
     trait Body: Debug + PartialEq {
@@ -301,16 +302,13 @@ mod tests {
     #[derive(Debug, PartialEq)]
     struct WithoutType();
     impl Type for WithoutType {
-        const TYPE_BYTE_OPT: Option<u8> = None;
+        const TYPE_BYTE_OPT: Option<TypeByte> = None;
     }
 
     #[derive(Debug, PartialEq)]
     struct HavingType();
-    impl HavingType {
-        const TYPE_BYTE: u8 = b'T';
-    }
     impl Type for HavingType {
-        const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+        const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::RowDescription);
     }
 
     #[derive(Debug, PartialEq)]

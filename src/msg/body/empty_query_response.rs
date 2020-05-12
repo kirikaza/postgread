@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 
 #[derive(Debug, PartialEq)]
@@ -8,7 +9,7 @@ impl EmptyQueryResponse {
 }
 
 impl MsgDecode for EmptyQueryResponse {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::EmptyQueryResponse);
 
     fn decode_body(_: &mut BytesSource) -> DecodeResult<Self> {
         Ok(Self {})
