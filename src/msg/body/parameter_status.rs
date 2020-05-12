@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 use ::std::fmt::{self, Debug, Formatter};
 
@@ -12,7 +13,7 @@ impl ParameterStatus {
 }
 
 impl MsgDecode for ParameterStatus {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::ParameterStatus);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let name = bytes.take_until_null()?;

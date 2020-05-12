@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::{*, Problem::*};
 use ::hex;
 use ::std::fmt::{self, Debug, Formatter};
@@ -27,7 +28,7 @@ impl DataRow {
 }
 
 impl MsgDecode for DataRow {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::DataRow);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let count = bytes.take_u16()?;

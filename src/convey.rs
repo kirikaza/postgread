@@ -2,6 +2,7 @@
 mod tests;
 
 use crate::msg::body::*;
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::async_io;
 use crate::msg::util::decode::{MsgDecode, Problem as DecodeProblem};
 use crate::msg::util::encode::{Problem as EncodeProblem};
@@ -12,6 +13,7 @@ use ::async_trait::async_trait;
 use ::core::hint::unreachable_unchecked;
 use ::futures::future::{self, Either, Future, FutureExt};
 use ::futures::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use ::std::convert::TryFrom;
 use ::std::io::{Error as IoError, Result as IoResult};
 
 #[derive(Debug)]
@@ -22,20 +24,20 @@ pub enum ConveyError {
     TlsError(TlsError),
     LeftUndecoded(usize),
     Todo(String),
-    UnexpectedType(TypeByte, State),
-    UnknownType(TypeByte),
+    UnexpectedType(State, Side, TypeByte),
+    UnknownType(Side, u8),
     Unsupported(&'static str),
 }
 
 pub type ConveyResult<T> = Result<T, ConveyError>;
 
-#[derive(Debug)]
-pub enum TypeByte {
-    Backend(u8),
-    Frontend(u8),
+#[derive(Clone, Copy, Debug)]
+pub enum Side {
+    Backend,
+    Frontend,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum State {
     Startup,
     AskedCleartextPassword,
@@ -212,7 +214,7 @@ where
                         return Ok(())
                     }
                     _ => {
-                        return Err(UnknownType(TypeByte::Backend(tls_response)))
+                        return Err(UnknownType(Side::Backend, tls_response))
                     },
                 }
                 self.write_frontend(&[TLS_SUPPORTED]).await?;
@@ -224,131 +226,93 @@ where
                 }
             }
         };
-        use TypeByte::*;
         loop {
             if cfg!(test) {
                 eprintln!("conveyor state is {:?}", state);
             }
-            let type_byte = self.read_type_byte_from_both().await?;
-            state = match type_byte {
-                Backend(Authentication::TYPE_BYTE) => {
+            let (side, type_byte) = self.read_type_byte_from_both().await?;
+            use Side::*;
+            use TypeByte as T;
+            state = match (side, type_byte, state) {
+                (Backend, T::Authentication, _) => {
                     self.process_backend_authentication(type_byte, state).await
                 },
-                Backend(BackendKeyData::TYPE_BYTE) => match state {
-                    State::Authenticated => {
-                        read_backend_through!(<BackendKeyData>, self);
-                        Ok(State::GotAllBackendParams)
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
+                (Backend, T::BackendKeyData, State::Authenticated) => {
+                    read_backend_through!(<BackendKeyData>, self);
+                    Ok(State::GotAllBackendParams)
                 },
-                Backend(CommandComplete::TYPE_BYTE) => match state {
-                    State::GotQuery |
-                    State::CommandComplete |
-                    State::QueryResponseWithRows => {
-                        read_backend_through!(<CommandComplete>, self);
-                        Ok(State::CommandComplete)
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
+                (Backend, T::CommandComplete, State::GotQuery) |
+                (Backend, T::CommandComplete, State::CommandComplete) |
+                (Backend, T::CommandComplete, State::QueryResponseWithRows) => {
+                    read_backend_through!(<CommandComplete>, self);
+                    Ok(State::CommandComplete)
                 },
-                Backend(DataRow::TYPE_BYTE) => match state {
-                    State::QueryResponseWithRows => {
-                        read_backend_through!(<DataRow>, self);
-                        Ok(State::QueryResponseWithRows)
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
+                (Backend, T::DataRow, State::QueryResponseWithRows) => {
+                    read_backend_through!(<DataRow>, self);
+                    Ok(State::QueryResponseWithRows)
                 },
-                Backend(EmptyQueryResponse::TYPE_BYTE) => {
-                    match state {
-                        State::GotQuery => {
-                            read_backend_through!(<EmptyQueryResponse>, self);
-                            Ok(State::GotEmptyQueryResponse)
-                        },
-                        _ => Err(UnexpectedType(type_byte, state)),
-                    }
+                (Backend, T::EmptyQueryResponse, State::GotQuery) => {
+                    read_backend_through!(<EmptyQueryResponse>, self);
+                    Ok(State::GotEmptyQueryResponse)
                 },
-                Backend(ErrorResponse::TYPE_BYTE) => {
+                (Backend, T::ErrorResponse, State::CommandComplete) |
+                (Backend, T::ErrorResponse, State::GotEmptyQueryResponse) |
+                (Backend, T::ErrorResponse, State::GotQuery) |
+                (Backend, T::ErrorResponse, State::QueryAbortedByError) |
+                (Backend, T::ErrorResponse, State::QueryResponseWithRows) => {
                     read_backend_through!(<ErrorResponse>, self);
-                    match state {
-                        State::GotQuery |
-                        State::GotEmptyQueryResponse |
-                        State::CommandComplete |
-                        State::QueryResponseWithRows |
-                        State::QueryAbortedByError => {
-                            Ok(State::QueryAbortedByError)
-                        },
-                        _ => return Ok(())
-                    }
+                        Ok(State::QueryAbortedByError)
                 },
-                Backend(NegotiateProtocolVersion::TYPE_BYTE) => {
-                    match state {
-                        State::Startup |
-                        State::Authenticated => {
-                            read_backend_through!(<NegotiateProtocolVersion>, self);
-                            Ok(state)
-                        }
-                        _ => Err(UnexpectedType(type_byte, state)),
-                    }
+                (Backend, T::ErrorResponse, _) => {
+                    read_backend_through!(<ErrorResponse>, self);
+                    return Ok(())
                 },
-                Backend(NoticeResponse::TYPE_BYTE) => {
-                   read_backend_through!(<NoticeResponse>, self);
+                (Backend, T::NegotiateProtocolVersion, State::Startup) |
+                (Backend, T::NegotiateProtocolVersion, State::Authenticated) => {
+                    read_backend_through!(<NegotiateProtocolVersion>, self);
                     Ok(state)
                 },
-                Backend(ParameterStatus::TYPE_BYTE) => match state {
-                    State::Authenticated => {
-                        read_backend_through!(<ParameterStatus>, self);
-                        Ok(State::Authenticated)
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
+                (Backend, T::NoticeResponse, _) => {
+                    read_backend_through!(<NoticeResponse>, self);
+                    Ok(state)
                 },
-                // Frontend(GSSResponse::TYPE_BYTE) |  // the same type byte
-                Frontend(Password::TYPE_BYTE) => match state {
-                    State::AskedCleartextPassword => {
-                        read_frontend_through!(<Password>, self);
-                        Ok(State::GotCleartextPassword)
-                    },
-                    State::AskedGSSResponse => {
-                        read_frontend_through!(<GSSResponse>, self);
-                        Ok(State::GotGSSResponse)
-                    },
-                    State::AskedMD5Password => {
-                        read_frontend_through!(<Password>, self);
-                        Ok(State::GotMD5Password)
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
+                (Backend, T::ParameterStatus, State::Authenticated) => {
+                    read_backend_through!(<ParameterStatus>, self);
+                    Ok(State::Authenticated)
                 },
-                Frontend(Query::TYPE_BYTE) => match state {
-                    State::ReadyForQuery => {
-                        read_frontend_through!(<Query>, self);
-                        Ok(State::GotQuery)
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
+                (Frontend, T::GssResponse_Or_Password, State::AskedCleartextPassword) => {
+                    read_frontend_through!(<Password>, self);
+                    Ok(State::GotCleartextPassword)
                 },
-                Backend(ReadyForQuery::TYPE_BYTE) => match state {
-                    State::GotAllBackendParams |
-                    State::GotEmptyQueryResponse |
-                    State::CommandComplete |
-                    State::QueryAbortedByError => {
-                        read_backend_through!(<ReadyForQuery>, self);
-                        Ok(State::ReadyForQuery)
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
+                (Frontend, T::GssResponse_Or_Password, State::AskedGSSResponse) => {
+                    read_frontend_through!(<GSSResponse>, self);
+                    Ok(State::GotGSSResponse)
                 },
-                Backend(RowDescription::TYPE_BYTE) => match state {
-                    State::GotQuery |
-                    State::CommandComplete => {
-                        read_backend_through!(<RowDescription>, self);
-                        Ok(State::QueryResponseWithRows)
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
+                (Frontend, T::GssResponse_Or_Password, State::AskedMD5Password) => {
+                    read_frontend_through!(<Password>, self);
+                    Ok(State::GotMD5Password)
                 },
-                Frontend(Terminate::TYPE_BYTE) => match state {
-                    State::ReadyForQuery => {
-                        read_frontend_through!(<Terminate>, self);
-                        return Ok(())
-                    },
-                    _ => Err(UnexpectedType(type_byte, state)),
+                (Frontend, T::Query, State::ReadyForQuery) => {
+                    read_frontend_through!(<Query>, self);
+                    Ok(State::GotQuery)
                 },
-                _ => Err(UnknownType(type_byte)),
+                (Backend, T::ReadyForQuery, State::GotAllBackendParams) |
+                (Backend, T::ReadyForQuery, State::GotEmptyQueryResponse) |
+                (Backend, T::ReadyForQuery, State::CommandComplete) |
+                (Backend, T::ReadyForQuery, State::QueryAbortedByError) => {
+                    read_backend_through!(<ReadyForQuery>, self);
+                    Ok(State::ReadyForQuery)
+                },
+                (Backend, T::RowDescription, State::GotQuery) |
+                (Backend, T::RowDescription, State::CommandComplete) => {
+                    read_backend_through!(<RowDescription>, self);
+                    Ok(State::QueryResponseWithRows)
+                },
+                (Frontend, T::Terminate, State::ReadyForQuery) => {
+                    read_frontend_through!(<Terminate>, self);
+                    return Ok(())
+                },
+                _ => Err(UnexpectedType(state, side, type_byte)),
             }?
         }
     }
@@ -384,7 +348,7 @@ where
             (_, State::Startup) =>
                 Err(Todo("Authentication::* is not fully implemented yet".into())),
             _ =>
-                Err(UnexpectedType(type_byte, state)),
+                Err(UnexpectedType(state, Side::Backend, type_byte)),
         }
     }
 
@@ -428,16 +392,18 @@ where
         Ok((bytes, message))
     }
 
-    async fn read_type_byte_from_both(&mut self) -> ConveyResult<TypeByte> {
+    async fn read_type_byte_from_both(&mut self) -> ConveyResult<(Side, TypeByte)> {
         let either = future::select(
             unwrap_stream!(&mut self.backend, Self::read_type_byte).boxed(),
             unwrap_stream!(&mut self.frontend, Self::read_type_byte).boxed(),
         ).await;
         // TODO: if both futures are ready, do we loose a result of the second one?
-        match either {
-            Either::Left((backend, _frontend)) => backend.map(TypeByte::Backend),
-            Either::Right((frontend, _backend)) => frontend.map(TypeByte::Frontend),
-        }
+        let (side, byte) = match either {
+            Either::Left((backend, _frontend)) => backend.map(|byte| (Side::Backend, byte)),
+            Either::Right((frontend, _backend)) => frontend.map(|byte| (Side::Frontend, byte)),
+        }?;
+        let type_byte = TypeByte::try_from(byte).map_err(|_| UnknownType(side, byte))?;
+        Ok((side, type_byte))
     }
 
     async fn read_backend_type_byte(&mut self) -> ConveyResult<u8> {

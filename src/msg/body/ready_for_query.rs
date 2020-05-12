@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::{*, Problem::*};
 
 #[derive(Debug, PartialEq)]
@@ -17,7 +18,7 @@ impl ReadyForQuery {
 }
 
 impl MsgDecode for ReadyForQuery {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::ReadyForQuery);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let status = match bytes.take_u8()? {

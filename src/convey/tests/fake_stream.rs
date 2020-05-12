@@ -91,7 +91,7 @@ impl TwoFakeStreams {
     fn push<Msg>(&mut self, side: FakeStreamSide, body: Msg)
     where Msg: 'static + MsgDecode + Send {
         if let Some(type_byte) = Msg::TYPE_BYTE_OPT {
-            self.push_type_byte(side, type_byte)
+            self.push_type_byte(side, type_byte.into())
         }
         self.push_body(side, body)
     }

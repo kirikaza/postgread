@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::{*, Problem::*};
 
 #[derive(Debug, PartialEq)]
@@ -17,7 +18,7 @@ impl Authentication {
 }
 
 impl MsgDecode for Authentication {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::Authentication);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let auth_type = bytes.take_u32()?;

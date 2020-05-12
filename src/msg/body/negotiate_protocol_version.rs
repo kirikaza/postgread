@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 
 #[derive(Debug, PartialEq)]
@@ -11,7 +12,7 @@ impl NegotiateProtocolVersion {
 }
 
 impl MsgDecode for NegotiateProtocolVersion {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::NegotiateProtocolVersion);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let newest_backend_minor = bytes.take_u32()?;

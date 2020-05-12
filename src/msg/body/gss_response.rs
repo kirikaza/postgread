@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 use ::std::fmt::{self, Debug, Formatter};
 
@@ -11,7 +12,7 @@ impl GSSResponse {
 }
 
 impl MsgDecode for GSSResponse {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::GssResponse_Or_Password);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let data = bytes.take_vec(bytes.left())?;

@@ -1,3 +1,4 @@
+use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::{*, Problem::*};
 use ::std::fmt::{self, Debug, Formatter};
 
@@ -12,7 +13,7 @@ impl ErrorResponse {
 }
 
 impl MsgDecode for ErrorResponse {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::ErrorResponse);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         ErrorOrNoticeFields::decode(bytes).map(Self)
@@ -24,7 +25,7 @@ impl NoticeResponse {
 }
 
 impl MsgDecode for NoticeResponse {
-    const TYPE_BYTE_OPT: Option<u8> = Some(Self::TYPE_BYTE);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::NoticeResponse);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         ErrorOrNoticeFields::decode(bytes).map(Self)
