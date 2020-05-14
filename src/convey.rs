@@ -41,11 +41,11 @@ pub enum Side {
 pub enum State {
     Startup,
     AskedCleartextPassword,
-    AskedGSSResponse,
-    AskedMD5Password,
+    AskedGssResponse,
+    AskedMd5Password,
     GotCleartextPassword,
-    GotGSSResponse,
-    GotMD5Password,
+    GotGssResponse,
+    GotMd5Password,
     Authenticated,
     GotAllBackendParams,
     ReadyForQuery,
@@ -79,7 +79,7 @@ pub enum BackendMsg<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum FrontendMsg<'a> {
-    GSSResponse(&'a GSSResponse),
+    GssResponse(&'a GssResponse),
     Initial(&'a Initial),
     Password(&'a Password),
     Query(&'a Query),
@@ -284,13 +284,13 @@ where
                     read_frontend_through!(<Password>, self);
                     Ok(State::GotCleartextPassword)
                 },
-                (Frontend, T::GssResponse_Or_Password, State::AskedGSSResponse) => {
-                    read_frontend_through!(<GSSResponse>, self);
-                    Ok(State::GotGSSResponse)
+                (Frontend, T::GssResponse_Or_Password, State::AskedGssResponse) => {
+                    read_frontend_through!(<GssResponse>, self);
+                    Ok(State::GotGssResponse)
                 },
-                (Frontend, T::GssResponse_Or_Password, State::AskedMD5Password) => {
+                (Frontend, T::GssResponse_Or_Password, State::AskedMd5Password) => {
                     read_frontend_through!(<Password>, self);
-                    Ok(State::GotMD5Password)
+                    Ok(State::GotMd5Password)
                 },
                 (Frontend, T::Query, State::ReadyForQuery) => {
                     read_frontend_through!(<Query>, self);
@@ -323,16 +323,16 @@ where
         match (authentication, &state) {
             (Auth::CleartextPassword, State::Startup) =>
                 Ok(State::AskedCleartextPassword),
-            (Auth::GSS, State::Startup) |
-            (Auth::SSPI, State::Startup) =>
-                Ok(State::AskedGSSResponse),
-            (Auth::GSSContinue{..}, State::GotGSSResponse) =>
-                Ok(State::AskedGSSResponse),
-            (Auth::MD5Password{..}, State::Startup) =>
-                Ok(State::AskedMD5Password),
+            (Auth::Gss, State::Startup) |
+            (Auth::Sspi, State::Startup) =>
+                Ok(State::AskedGssResponse),
+            (Auth::GssContinue {..}, State::GotGssResponse) =>
+                Ok(State::AskedGssResponse),
+            (Auth::Md5Password {..}, State::Startup) =>
+                Ok(State::AskedMd5Password),
             (Auth::Ok, State::GotCleartextPassword) |
-            (Auth::Ok, State::GotGSSResponse) |
-            (Auth::Ok, State::GotMD5Password) |
+            (Auth::Ok, State::GotGssResponse) |
+            (Auth::Ok, State::GotMd5Password) |
             (Auth::Ok, State::Startup) =>
                 Ok(State::Authenticated),
             (Auth::KerberosV5, State::Startup) =>
@@ -340,7 +340,7 @@ where
                     "AuthenticationKerberosV5 is unsupported after PostgreSQL 9.3 \
                     which in turn is unsupported by PostgreSQL maintainers"
                 )),
-            (Auth::SCMCredential, State::Startup) =>
+            (Auth::ScmCredential, State::Startup) =>
                 Err(Unsupported(
                     "This message type is only issued by pre-9.1 servers. \
                     It may eventually be removed from the protocol specification."

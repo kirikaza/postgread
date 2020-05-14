@@ -19,7 +19,7 @@ pub use backend_key_data::BackendKeyData;
 pub use command_complete::CommandComplete;
 pub use data_row::DataRow;
 pub use error_and_notice_responses::{ErrorResponse, NoticeResponse};
-pub use gss_response::GSSResponse;
+pub use gss_response::GssResponse;
 pub use empty_query_response::EmptyQueryResponse;
 pub use negotiate_protocol_version::NegotiateProtocolVersion;
 pub use parameter_status::ParameterStatus;

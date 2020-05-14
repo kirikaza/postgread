@@ -17,11 +17,11 @@ pub mod authentication {
     }
 
     pub fn gss(_: ()) -> Authentication {
-        Authentication::GSS
+        Authentication::Gss
     }
 
     pub fn gss_continue(auth_data: &[u8]) -> Authentication {
-        Authentication::GSSContinue { auth_data: auth_data.into() }
+        Authentication::GssContinue { auth_data: auth_data.into() }
     }
 
     pub fn kerberos_v5(_: ()) -> Authentication {
@@ -29,15 +29,15 @@ pub mod authentication {
     }
 
     pub fn md5_password(salt: &[u8; 4]) -> Authentication {
-        Authentication::MD5Password { salt: *salt }
+        Authentication::Md5Password { salt: *salt }
     }
 
     pub fn scm_credential(_: ()) -> Authentication {
-        Authentication::SCMCredential
+        Authentication::ScmCredential
     }
 
     pub fn sspi(_: ()) -> Authentication {
-        Authentication::SSPI
+        Authentication::Sspi
     }
 }
 
@@ -101,10 +101,10 @@ pub mod error_response {
 
 pub mod gss_response {
     use crate::msg::body::gss_response::*;
-    export_wrapper!(FrontendMsg::GSSResponse);
+    export_wrapper!(FrontendMsg::GssResponse);
 
-    pub fn new(response: &[u8]) -> GSSResponse {
-        GSSResponse(response.into())
+    pub fn new(response: &[u8]) -> GssResponse {
+        GssResponse(response.into())
     }
 }
 

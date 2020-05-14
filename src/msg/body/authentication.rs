@@ -6,11 +6,11 @@ pub enum Authentication {
     Ok,
     KerberosV5,
     CleartextPassword,
-    MD5Password { salt: [u8; 4] },
-    SCMCredential,
-    GSS,
-    SSPI,
-    GSSContinue { auth_data: Vec<u8> },
+    Md5Password { salt: [u8; 4] },
+    ScmCredential,
+    Gss,
+    Sspi,
+    GssContinue { auth_data: Vec<u8> },
 }
 
 impl Authentication {
@@ -27,10 +27,10 @@ impl MsgDecode for Authentication {
             2 => Ok(Self::KerberosV5),
             3 => Ok(Self::CleartextPassword),
             5 => decode_md5_password(bytes),
-            6 => Ok(Self::SCMCredential),
-            7 => Ok(Self::GSS),
+            6 => Ok(Self::ScmCredential),
+            7 => Ok(Self::Gss),
             8 => decode_gss_continue(bytes),
-            9 => Ok(Self::SSPI),
+            9 => Ok(Self::Sspi),
             x => Err(Unknown(format!("has unknown sub-type {}", x))),
         }
     }
@@ -39,12 +39,12 @@ impl MsgDecode for Authentication {
 fn decode_md5_password(bytes: &mut BytesSource) -> DecodeResult<Authentication> {
     let mut salt = [0u8; 4];
     bytes.take_slice(&mut salt)?;
-    Ok(Authentication::MD5Password { salt })
+    Ok(Authentication::Md5Password { salt })
 }
 
 fn decode_gss_continue(bytes: &mut BytesSource) -> DecodeResult<Authentication> {
     let auth_data = bytes.take_vec(bytes.left())?;
-    Ok(Authentication::GSSContinue { auth_data })
+    Ok(Authentication::GssContinue { auth_data })
 }
 
 #[cfg(test)]
@@ -82,7 +82,7 @@ mod tests {
             0,0,0,5, // MD5 password is required
             1,2,3,4, // salt
         ];
-        assert_decode_ok(MD5Password { salt: [1,2,3,4] }, bytes);
+        assert_decode_ok(Md5Password { salt: [1,2,3,4] }, bytes);
     }
 
     #[test]
@@ -90,7 +90,7 @@ mod tests {
         let bytes: &[u8] = &[
             0,0,0,6, // SCM credentials message is required
         ];
-        assert_decode_ok(SCMCredential, bytes);
+        assert_decode_ok(ScmCredential, bytes);
     }
 
     #[test]
@@ -98,7 +98,7 @@ mod tests {
         let bytes: &[u8] = &[
             0,0,0,7, // GSSAPI authentication is required
         ];
-        assert_decode_ok(GSS, bytes);
+        assert_decode_ok(Gss, bytes);
     }
 
     #[test]
@@ -106,7 +106,7 @@ mod tests {
         let bytes: &[u8] = &[
             0,0,0,9, // SSPI authentication is required
         ];
-        assert_decode_ok(SSPI, bytes);
+        assert_decode_ok(Sspi, bytes);
     }
 
     #[test]
@@ -115,6 +115,6 @@ mod tests {
             0,0,0,8, // contains GSS or SSPI data
             b'G', b'S', b'S', // data
         ];
-        assert_decode_ok(GSSContinue { auth_data: Vec::from("GSS") }, bytes);
+        assert_decode_ok(GssContinue { auth_data: Vec::from("GSS") }, bytes);
     }
 }
