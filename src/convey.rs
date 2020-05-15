@@ -39,21 +39,21 @@ pub enum Side {
 
 #[derive(Clone, Copy, Debug)]
 pub enum State {
-    Startup,
     AskedCleartextPassword,
     AskedGssResponse,
     AskedMd5Password,
+    Authenticated,
+    CommandComplete,
+    GotAllBackendParams,
     GotCleartextPassword,
+    GotEmptyQueryResponse,
     GotGssResponse,
     GotMd5Password,
-    Authenticated,
-    GotAllBackendParams,
-    ReadyForQuery,
     GotQuery,
-    GotEmptyQueryResponse,
-    CommandComplete,
-    QueryResponseWithRows,
     QueryAbortedByError,
+    QueryResponseWithRows,
+    ReadyForQuery,
+    Startup,
 }
 
 #[derive(Debug, PartialEq)]

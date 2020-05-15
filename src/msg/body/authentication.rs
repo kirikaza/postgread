@@ -3,14 +3,14 @@ use crate::msg::util::decode::{*, Problem::*};
 
 #[derive(Debug, PartialEq)]
 pub enum Authentication {
-    Ok,
-    KerberosV5,
     CleartextPassword,
-    Md5Password { salt: [u8; 4] },
-    ScmCredential,
     Gss,
-    Sspi,
     GssContinue { auth_data: Vec<u8> },
+    KerberosV5,
+    Md5Password { salt: [u8; 4] },
+    Ok,
+    ScmCredential,
+    Sspi,
 }
 
 impl Authentication {
@@ -36,15 +36,15 @@ impl MsgDecode for Authentication {
     }
 }
 
+fn decode_gss_continue(bytes: &mut BytesSource) -> DecodeResult<Authentication> {
+    let auth_data = bytes.take_vec(bytes.left())?;
+    Ok(Authentication::GssContinue { auth_data })
+}
+
 fn decode_md5_password(bytes: &mut BytesSource) -> DecodeResult<Authentication> {
     let mut salt = [0u8; 4];
     bytes.take_slice(&mut salt)?;
     Ok(Authentication::Md5Password { salt })
-}
-
-fn decode_gss_continue(bytes: &mut BytesSource) -> DecodeResult<Authentication> {
-    let auth_data = bytes.take_vec(bytes.left())?;
-    Ok(Authentication::GssContinue { auth_data })
 }
 
 #[cfg(test)]
@@ -53,11 +53,28 @@ mod tests {
     use crate::msg::util::test::*;
 
     #[test]
-    fn ok() {
+    fn cleartext_password() {
         let bytes: &[u8] = &[
-            0,0,0,0, // ok
+            0,0,0,3, // cleartext password is required
         ];
-        assert_decode_ok(Ok, bytes);
+        assert_decode_ok(CleartextPassword, bytes);
+    }
+
+    #[test]
+    fn gss() {
+        let bytes: &[u8] = &[
+            0,0,0,7, // GSSAPI authentication is required
+        ];
+        assert_decode_ok(Gss, bytes);
+    }
+
+    #[test]
+    fn gss_continue() {
+        let bytes: &[u8] = &[
+            0,0,0,8, // contains GSS or SSPI data
+            b'G', b'S', b'S', // data
+        ];
+        assert_decode_ok(GssContinue { auth_data: Vec::from("GSS") }, bytes);
     }
 
     #[test]
@@ -66,14 +83,6 @@ mod tests {
             0,0,0,2, // Kerberos V5 is required
         ];
         assert_decode_ok(KerberosV5, bytes);
-    }
-
-    #[test]
-    fn cleartext_password() {
-        let bytes: &[u8] = &[
-            0,0,0,3, // cleartext password is required
-        ];
-        assert_decode_ok(CleartextPassword, bytes);
     }
 
     #[test]
@@ -86,6 +95,14 @@ mod tests {
     }
 
     #[test]
+    fn ok() {
+        let bytes: &[u8] = &[
+            0,0,0,0, // ok
+        ];
+        assert_decode_ok(Ok, bytes);
+    }
+
+    #[test]
     fn scm_credential() {
         let bytes: &[u8] = &[
             0,0,0,6, // SCM credentials message is required
@@ -94,27 +111,10 @@ mod tests {
     }
 
     #[test]
-    fn gss() {
-        let bytes: &[u8] = &[
-            0,0,0,7, // GSSAPI authentication is required
-        ];
-        assert_decode_ok(Gss, bytes);
-    }
-
-    #[test]
     fn sspi() {
         let bytes: &[u8] = &[
             0,0,0,9, // SSPI authentication is required
         ];
         assert_decode_ok(Sspi, bytes);
-    }
-
-    #[test]
-    fn gss_continue() {
-        let bytes: &[u8] = &[
-            0,0,0,8, // contains GSS or SSPI data
-            b'G', b'S', b'S', // data
-        ];
-        assert_decode_ok(GssContinue { auth_data: Vec::from("GSS") }, bytes);
     }
 }
