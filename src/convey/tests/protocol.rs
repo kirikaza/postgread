@@ -340,6 +340,137 @@ fn auth_sspi_quadruple_error() {
 }
 
 #[test]
+fn auth_sasl_single_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sasl(&["a", "b"]), conveyed, streams);
+    frontend!(sasl_initial_response::new("a"), conveyed, streams);
+    backend!(authentication::sasl_final(""), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sasl_single_error_after_final() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sasl(&["a", "b"]), conveyed, streams);
+    frontend!(sasl_initial_response::new("a"), conveyed, streams);
+    backend!(authentication::sasl_final(""), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sasl_single_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sasl(&["a", "b"]), conveyed, streams);
+    frontend!(sasl_initial_response::new("a"), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sasl_double_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sasl(&["a", "b"]), conveyed, streams);
+    frontend!(sasl_initial_response::new("a"), conveyed, streams);
+    backend!(authentication::sasl_continue(""), conveyed, streams);
+    frontend!(sasl_response::new(""), conveyed, streams);
+    backend!(authentication::sasl_final(""), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sasl_double_error_after_final() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sasl(&["a", "b"]), conveyed, streams);
+    frontend!(sasl_initial_response::new("a"), conveyed, streams);
+    backend!(authentication::sasl_continue(""), conveyed, streams);
+    frontend!(sasl_response::new(""), conveyed, streams);
+    backend!(authentication::sasl_final(""), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sasl_double_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sasl(&["a", "b"]), conveyed, streams);
+    frontend!(sasl_initial_response::new("a"), conveyed, streams);
+    backend!(authentication::sasl_continue(""), conveyed, streams);
+    frontend!(sasl_response::new(""), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sasl_quadriple_ok() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sasl(&["a", "b"]), conveyed, streams);
+    frontend!(sasl_initial_response::new("a"), conveyed, streams);
+    backend!(authentication::sasl_continue("2"), conveyed, streams);
+    frontend!(sasl_response::new("2"), conveyed, streams);
+    backend!(authentication::sasl_continue("3"), conveyed, streams);
+    frontend!(sasl_response::new("3"), conveyed, streams);
+    backend!(authentication::sasl_continue("4"), conveyed, streams);
+    frontend!(sasl_response::new("4"), conveyed, streams);
+    backend!(authentication::sasl_final(""), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(error_response::new("shorten test"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sasl_quadriple_error_after_final() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sasl(&["a", "b"]), conveyed, streams);
+    frontend!(sasl_initial_response::new("a"), conveyed, streams);
+    backend!(authentication::sasl_continue("2"), conveyed, streams);
+    frontend!(sasl_response::new("2"), conveyed, streams);
+    backend!(authentication::sasl_continue("3"), conveyed, streams);
+    frontend!(sasl_response::new("3"), conveyed, streams);
+    backend!(authentication::sasl_continue("4"), conveyed, streams);
+    frontend!(sasl_response::new("4"), conveyed, streams);
+    backend!(authentication::sasl_final(""), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn auth_sasl_quadriple_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::sasl(&["a", "b"]), conveyed, streams);
+    frontend!(sasl_initial_response::new("a"), conveyed, streams);
+    backend!(authentication::sasl_continue("2"), conveyed, streams);
+    frontend!(sasl_response::new("2"), conveyed, streams);
+    backend!(authentication::sasl_continue("3"), conveyed, streams);
+    frontend!(sasl_response::new("3"), conveyed, streams);
+    backend!(authentication::sasl_continue("4"), conveyed, streams);
+    frontend!(sasl_response::new("4"), conveyed, streams);
+    backend!(error_response::new("something wrong"), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+#[test]
 fn auth_kerberos_unsupported() {
     let mut streams = TwoFakeStreams::new();
     let mut conveyed = vec![];

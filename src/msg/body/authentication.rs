@@ -9,6 +9,9 @@ pub enum Authentication {
     KerberosV5,
     Md5Password { salt: [u8; 4] },
     Ok,
+    Sasl { auth_mechanisms: Vec<Vec<u8>> },
+    SaslContinue { challenge_data: Vec<u8> },
+    SaslFinal { additional_data: Vec<u8> },
     ScmCredential,
     Sspi,
 }
@@ -31,6 +34,9 @@ impl MsgDecode for Authentication {
             7 => Ok(Self::Gss),
             8 => decode_gss_continue(bytes),
             9 => Ok(Self::Sspi),
+            10 => decode_sasl(bytes),
+            11 => decode_sasl_continue(bytes),
+            12 => decode_sasl_final(bytes),
             x => Err(Unknown(format!("has unknown sub-type {}", x))),
         }
     }
@@ -45,6 +51,28 @@ fn decode_md5_password(bytes: &mut BytesSource) -> DecodeResult<Authentication> 
     let mut salt = [0u8; 4];
     bytes.take_slice(&mut salt)?;
     Ok(Authentication::Md5Password { salt })
+}
+
+fn decode_sasl(bytes: &mut BytesSource) -> DecodeResult<Authentication> {
+    let mut auth_mechanisms = vec![];
+    loop {
+        let mech = bytes.take_until_null()?;
+        if mech.is_empty() {
+            break;
+        }
+        auth_mechanisms.push(mech);
+    }
+    Ok(Authentication::Sasl { auth_mechanisms })
+}
+
+fn decode_sasl_continue(bytes: &mut BytesSource) -> DecodeResult<Authentication> {
+    let data = bytes.take_vec(bytes.left())?;
+    Ok(Authentication::SaslContinue { challenge_data: data })
+}
+
+fn decode_sasl_final(bytes: &mut BytesSource) -> DecodeResult<Authentication> {
+    let additional_data = bytes.take_vec(bytes.left())?;
+    Ok(Authentication::SaslFinal { additional_data })
 }
 
 #[cfg(test)]
@@ -100,6 +128,43 @@ mod tests {
             0,0,0,0, // ok
         ];
         assert_decode_ok(Ok, bytes);
+    }
+
+    #[test]
+    fn sasl() {
+        let bytes: &[u8] = &[
+            0,0,0,10,  // contains list of SASL authentication mechanisms
+            b'O', b'T', b'P', 0,  // first
+            b'S', b'K', b'E', b'Y', 0,  // second
+            0,  // list terminator
+        ];
+        assert_decode_ok(Sasl {
+            auth_mechanisms: vec![
+                Vec::from("OTP"),
+                Vec::from("SKEY"),
+            ]
+        }, bytes);
+    }
+
+    #[test]
+    fn sasl_continue() {
+        let bytes: &[u8] = &[
+            0,0,0,11,  // contains a SASL challenge data
+            b'S', b'A', b'S', b'L',  // data
+            b' ', b'C', b'O', b'N',  // data
+            b'T'
+        ];
+        assert_decode_ok(SaslContinue { challenge_data: Vec::from("SASL CONT") }, bytes);
+    }
+
+    #[test]
+    fn sasl_final() {
+        let bytes: &[u8] = &[
+            0,0,0,12,  // SASL authentication has completed
+            b'S', b'A', b'S', b'L',  // data
+            b' ', b'F', b'I', b'N',  // data
+        ];
+        assert_decode_ok(SaslFinal { additional_data: Vec::from("SASL FIN") }, bytes);
     }
 
     #[test]

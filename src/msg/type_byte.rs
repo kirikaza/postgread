@@ -11,7 +11,7 @@ pub enum TypeByte {
     EmptyQueryResponse = b'I',
     ErrorResponse = b'E',
     NoticeResponse = b'N',
-    GssResponse_Or_Password = b'p',
+    GssResponse_Or_Password_Or_SaslResponses = b'p',
     NegotiateProtocolVersion = b'v',
     ParameterStatus = b'S',
     Query = b'Q',
