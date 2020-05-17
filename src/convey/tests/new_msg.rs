@@ -32,6 +32,19 @@ pub mod authentication {
         Authentication::Md5Password { salt: *salt }
     }
 
+    pub fn sasl(auth_mechanisms: &[&'static str]) -> Authentication {
+        let auth_mechanisms = auth_mechanisms.iter().map(|s| (*s).into()).collect();
+        Authentication::Sasl { auth_mechanisms }
+    }
+
+    pub fn sasl_continue(challenge_data: &'static str) -> Authentication {
+        Authentication::SaslContinue { challenge_data: challenge_data.into() }
+    }
+
+    pub fn sasl_final(additional_data: &'static str) -> Authentication {
+        Authentication::SaslFinal { additional_data: additional_data.into() }
+    }
+
     pub fn scm_credential(_: ()) -> Authentication {
         Authentication::ScmCredential
     }
@@ -223,6 +236,29 @@ pub mod row_description {
             format: Format::Text,
         }).collect();
         RowDescription { fields }
+    }
+}
+
+pub mod sasl_initial_response {
+    use crate::msg::body::sasl_initial_response::*;
+    export_wrapper!(FrontendMsg::SaslInitialResponse);
+
+    pub fn new(selected_mechanism: &'static str) -> SaslInitialResponse {
+        SaslInitialResponse {
+            selected_mechanism: selected_mechanism.into(),
+            mechanism_data: None,
+        }
+    }
+}
+
+pub mod sasl_response {
+    use crate::msg::body::sasl_response::*;
+    export_wrapper!(FrontendMsg::SaslResponse);
+
+    pub fn new(mechanism_data: &'static str) -> SaslResponse {
+        SaslResponse {
+            mechanism_data: mechanism_data.into(),
+        }
     }
 }
 

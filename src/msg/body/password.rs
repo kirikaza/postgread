@@ -12,7 +12,7 @@ impl Password {
 }
 
 impl MsgDecode for Password {
-    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::GssResponse_Or_Password);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::GssResponse_Or_Password_Or_SaslResponses);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let password = bytes.take_until_null()?;

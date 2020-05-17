@@ -42,14 +42,18 @@ pub enum State {
     AskedCleartextPassword,
     AskedGssResponse,
     AskedMd5Password,
+    AskedSaslInitialResponse,
+    AskedSaslResponse,
     Authenticated,
     CommandComplete,
+    FinishedSasl,
     GotAllBackendParams,
     GotCleartextPassword,
     GotEmptyQueryResponse,
     GotGssResponse,
     GotMd5Password,
     GotQuery,
+    GotAnySaslResponse,
     QueryAbortedByError,
     QueryResponseWithRows,
     ReadyForQuery,
@@ -83,6 +87,8 @@ pub enum FrontendMsg<'a> {
     Initial(&'a Initial),
     Password(&'a Password),
     Query(&'a Query),
+    SaslInitialResponse(&'a SaslInitialResponse),
+    SaslResponse(&'a SaslResponse),
     Terminate(&'a Terminate),
 }
 
@@ -280,17 +286,25 @@ where
                     read_backend_through!(<ParameterStatus>, self);
                     Ok(State::Authenticated)
                 },
-                (Frontend, T::GssResponse_Or_Password, State::AskedCleartextPassword) => {
+                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedCleartextPassword) => {
                     read_frontend_through!(<Password>, self);
                     Ok(State::GotCleartextPassword)
                 },
-                (Frontend, T::GssResponse_Or_Password, State::AskedGssResponse) => {
+                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedGssResponse) => {
                     read_frontend_through!(<GssResponse>, self);
                     Ok(State::GotGssResponse)
                 },
-                (Frontend, T::GssResponse_Or_Password, State::AskedMd5Password) => {
+                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedMd5Password) => {
                     read_frontend_through!(<Password>, self);
                     Ok(State::GotMd5Password)
+                },
+                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedSaslInitialResponse) => {
+                    read_frontend_through!(<SaslInitialResponse>, self);
+                    Ok(State::GotAnySaslResponse)
+                },
+                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedSaslResponse) => {
+                    read_frontend_through!(<SaslResponse>, self);
+                    Ok(State::GotAnySaslResponse)
                 },
                 (Frontend, T::Query, State::ReadyForQuery) => {
                     read_frontend_through!(<Query>, self);
@@ -330,6 +344,7 @@ where
                 Ok(State::AskedGssResponse),
             (Auth::Md5Password {..}, State::Startup) =>
                 Ok(State::AskedMd5Password),
+            (Auth::Ok, State::FinishedSasl) |
             (Auth::Ok, State::GotCleartextPassword) |
             (Auth::Ok, State::GotGssResponse) |
             (Auth::Ok, State::GotMd5Password) |
@@ -340,6 +355,12 @@ where
                     "AuthenticationKerberosV5 is unsupported after PostgreSQL 9.3 \
                     which in turn is unsupported by PostgreSQL maintainers"
                 )),
+            (Auth::Sasl {..}, State::Startup) =>
+                Ok(State::AskedSaslInitialResponse),
+            (Auth::SaslContinue {..}, State::GotAnySaslResponse) =>
+                Ok(State::AskedSaslResponse),
+            (Auth::SaslFinal {..}, State::GotAnySaslResponse) =>
+                Ok(State::FinishedSasl),
             (Auth::ScmCredential, State::Startup) =>
                 Err(Unsupported(
                     "This message type is only issued by pre-9.1 servers. \
