@@ -9,7 +9,7 @@ pub struct SaslInitialResponse {
 }
 
 impl MsgDecode for SaslInitialResponse {
-    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::GssResponse_Or_Password_Or_SaslResponses);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::GssResponse_or_Password_or_SaslResponses);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let selected_mechanism = bytes.take_until_null()?;

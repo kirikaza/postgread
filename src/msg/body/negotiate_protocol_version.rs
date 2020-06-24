@@ -1,10 +1,11 @@
+use crate::msg::parts::{Text, decode_vec};
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 
 #[derive(Debug, PartialEq)]
 pub struct NegotiateProtocolVersion {
     pub newest_backend_minor: u32,
-    pub unrecognized_options: Vec<Vec<u8>>,
+    pub unrecognized_options: Vec<Text>,
 }
 
 impl NegotiateProtocolVersion {
@@ -16,18 +17,14 @@ impl MsgDecode for NegotiateProtocolVersion {
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let newest_backend_minor = bytes.take_u32()?;
-        let count = bytes.take_u32()?;
-        let mut unrecognized_options = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            unrecognized_options.push(bytes.take_until_null()?)
-        }
+        let unrecognized_options = decode_vec(bytes.take_u32()? as usize, bytes)?;
         Ok(Self { newest_backend_minor, unrecognized_options })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{NegotiateProtocolVersion};
+    use super::NegotiateProtocolVersion;
     use crate::msg::util::test::*;
 
     #[test]
@@ -59,9 +56,9 @@ mod tests {
             NegotiateProtocolVersion {
                 newest_backend_minor: 0x12345678,
                 unrecognized_options: vec![
-                    Vec::from("first"),
-                    Vec::from("second"),
-                    Vec::from("third"),
+                    "first".into(),
+                    "second".into(),
+                    "third".into(),
                 ],
             },
             bytes,
