@@ -13,7 +13,7 @@ impl ParameterStatus {
 }
 
 impl MsgDecode for ParameterStatus {
-    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::ParameterStatus);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::ParameterStatus_or_Sync);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let name = bytes.take_until_null()?;

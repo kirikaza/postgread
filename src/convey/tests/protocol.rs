@@ -712,6 +712,148 @@ fn multiple_queries_with_error_between() {
     assert_ok!(test_convey(conveyed, streams));
 }
 
+#[test]
+fn ext_query_parse_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(parse::new(()), conveyed, streams);
+    backend!(error_response::new(""), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn ext_query_bind_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(parse::new(()), conveyed, streams);
+    backend!(parse_complete::new(()), conveyed, streams);
+    frontend!(bind::new(()), conveyed, streams);
+    backend!(error_response::new(""), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn ext_query_execute_error() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(parse::new(()), conveyed, streams);
+    backend!(parse_complete::new(()), conveyed, streams);
+    frontend!(bind::new(()), conveyed, streams);
+    backend!(bind_complete::new(()), conveyed, streams);
+    frontend!(execute::new(()), conveyed, streams);
+    backend!(error_response::new(""), conveyed, streams);
+    frontend!(sync::new(()), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn ext_query_execute_empty() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(parse::new(()), conveyed, streams);
+    backend!(parse_complete::new(()), conveyed, streams);
+    frontend!(bind::new(()), conveyed, streams);
+    backend!(bind_complete::new(()), conveyed, streams);
+    frontend!(execute::new(()), conveyed, streams);
+    backend!(empty_query_response::new(()), conveyed, streams);
+    frontend!(sync::new(()), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn ext_query_execute_no_rows() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(parse::new(()), conveyed, streams);
+    backend!(parse_complete::new(()), conveyed, streams);
+    frontend!(bind::new(()), conveyed, streams);
+    backend!(bind_complete::new(()), conveyed, streams);
+    frontend!(execute::new(()), conveyed, streams);
+    backend!(command_complete::new(""), conveyed, streams);
+    frontend!(sync::new(()), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn ext_query_execute_few_rows() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(parse::new(()), conveyed, streams);
+    backend!(parse_complete::new(()), conveyed, streams);
+    frontend!(bind::new(()), conveyed, streams);
+    backend!(bind_complete::new(()), conveyed, streams);
+    frontend!(execute::new(()), conveyed, streams);
+    backend!(data_row::columns(&[]), conveyed, streams);
+    backend!(data_row::columns(&[]), conveyed, streams);
+    backend!(data_row::columns(&[]), conveyed, streams);
+    backend!(command_complete::new(""), conveyed, streams);
+    frontend!(sync::new(()), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
+#[test]
+fn ext_query_execute_many_rows() {
+    let mut streams = TwoFakeStreams::new();
+    let mut conveyed = vec![];
+    frontend!(initial::startup(11, 12, hashmap!{}), conveyed, streams);
+    backend!(authentication::ok(()), conveyed, streams);
+    backend!(backend_key_data::new(21, 22), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(parse::new(()), conveyed, streams);
+    backend!(parse_complete::new(()), conveyed, streams);
+    frontend!(bind::new(()), conveyed, streams);
+    backend!(bind_complete::new(()), conveyed, streams);
+    frontend!(execute::new(()), conveyed, streams);
+    backend!(data_row::columns(&[]), conveyed, streams);
+    backend!(data_row::columns(&[]), conveyed, streams);
+    backend!(data_row::columns(&[]), conveyed, streams);
+    backend!(portal_suspended::new(()), conveyed, streams);
+    frontend!(execute::new(()), conveyed, streams);
+    backend!(data_row::columns(&[]), conveyed, streams);
+    backend!(data_row::columns(&[]), conveyed, streams);
+    backend!(command_complete::new(""), conveyed, streams);
+    frontend!(sync::new(()), conveyed, streams);
+    backend!(ready_for_query::idle(()), conveyed, streams);
+    frontend!(terminate::new(()), conveyed, streams);
+    assert_ok!(test_convey(conveyed, streams));
+}
+
 fn test_convey(
     expected_conveyed: Vec<Message>,
     mut fake_streams: TwoFakeStreams,

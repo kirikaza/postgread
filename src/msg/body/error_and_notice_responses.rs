@@ -13,7 +13,7 @@ impl ErrorResponse {
 }
 
 impl MsgDecode for ErrorResponse {
-    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::ErrorResponse);
+    const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::Execute_or_ErrorResponse);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
         ErrorOrNoticeFields::decode(bytes).map(Self)

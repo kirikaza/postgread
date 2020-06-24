@@ -39,25 +39,37 @@ pub enum Side {
 
 #[derive(Clone, Copy, Debug)]
 pub enum State {
+    // From backend point of view ("AskedX" means "backend asked X", "GotX" means "backend got X from frontend").
+    AbortedExtendedQuery,
+    AbortedParsingOrBinding,
+    AbortedSimpleQuery,
+    AnsweringToExtendedQuery,
+    AnsweringToSimpleQuery,
     AskedCleartextPassword,
     AskedGssResponse,
     AskedMd5Password,
     AskedSaslInitialResponse,
     AskedSaslResponse,
     Authenticated,
-    CommandComplete,
+    Bound,
+    CompletedExtendedQuery,
+    CompletedSimpleCommand,
+    ExecutingExtendedQuery,
     FinishedSasl,
-    GotAllBackendParams,
+    GotAnySaslResponse,
+    GotBinding,
     GotCleartextPassword,
-    GotEmptyQueryResponse,
     GotGssResponse,
     GotMd5Password,
-    GotQuery,
-    GotAnySaslResponse,
-    QueryAbortedByError,
-    QueryResponseWithRows,
+    GotPreparedStatement,
+    GotSimpleQuery,
+    GotStartup,
+    GotSync,
     ReadyForQuery,
-    Startup,
+    SeenEmptyExtendedQuery,
+    SeenEmptySimpleQuery,
+    SentAllBackendParams,
+    SuspendedExtendedQuery,
 }
 
 #[derive(Debug, PartialEq)]
@@ -70,6 +82,7 @@ pub enum Message<'a> {
 pub enum BackendMsg<'a> {
     Authentication(&'a Authentication),
     BackendKeyData(&'a BackendKeyData),
+    BindComplete(&'a BindComplete),
     CommandComplete(&'a CommandComplete),
     DataRow(&'a DataRow),
     EmptyQueryResponse(&'a EmptyQueryResponse),
@@ -77,18 +90,24 @@ pub enum BackendMsg<'a> {
     NegotiateProtocolVersion(&'a NegotiateProtocolVersion),
     NoticeResponse(&'a NoticeResponse),
     ParameterStatus(&'a ParameterStatus),
+    ParseComplete(&'a ParseComplete),
+    PortalSuspended(&'a PortalSuspended),
     ReadyForQuery(&'a ReadyForQuery),
     RowDescription(&'a RowDescription),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum FrontendMsg<'a> {
+    Bind(&'a Bind),
+    Execute(&'a Execute),
     GssResponse(&'a GssResponse),
     Initial(&'a Initial),
+    Parse(&'a Parse),
     Password(&'a Password),
     Query(&'a Query),
     SaslInitialResponse(&'a SaslInitialResponse),
     SaslResponse(&'a SaslResponse),
+    Sync(&'a Sync),
     Terminate(&'a Terminate),
 }
 
@@ -205,7 +224,7 @@ where
     #[allow(clippy::cognitive_complexity)]
     async fn go(&mut self) -> ConveyResult<()> {
         let mut state = match read_frontend_through!(<Initial>, self) {
-            Initial::Startup(_) => State::Startup,
+            Initial::Startup(_) => State::GotStartup,
             Initial::Cancel(_) => return Ok(()),
             Initial::TLS => {
                 let tls_response = self.read_backend_type_byte().await?;
@@ -226,54 +245,114 @@ where
                 self.write_frontend(&[TLS_SUPPORTED]).await?;
                 switch_server_to_tls(&mut self.frontend, &self.frontend_tls_server).await?;
                 match read_frontend_through!(<Initial>, self) {
-                    Initial::Startup(_) => State::Startup,
+                    Initial::Startup(_) => State::GotStartup,
                     Initial::Cancel(_) => return Ok(()),
                     _ => return Err(TlsError(TlsError::TlsRequestedInsideTls))
                 }
             }
         };
         loop {
-            if cfg!(test) {
-                eprintln!("conveyor state is {:?}", state);
-            }
             let (side, type_byte) = self.read_type_byte_from_both().await?;
             use Side::*;
             use TypeByte as T;
+            if cfg!(test) {
+                eprintln!("conveyor got {:?} from {:?} on state={:?}", type_byte, side, state);
+            }
             state = match (side, type_byte, state) {
                 (Backend, T::Authentication, _) => {
                     self.process_backend_authentication(type_byte, state).await
                 },
                 (Backend, T::BackendKeyData, State::Authenticated) => {
                     read_backend_through!(<BackendKeyData>, self);
-                    Ok(State::GotAllBackendParams)
+                    Ok(State::SentAllBackendParams)
                 },
-                (Backend, T::CommandComplete, State::GotQuery) |
-                (Backend, T::CommandComplete, State::CommandComplete) |
-                (Backend, T::CommandComplete, State::QueryResponseWithRows) => {
+                (Frontend, T::Bind, State::ReadyForQuery) => {
+                    read_frontend_through!(<Bind>, self);
+                    Ok(State::GotBinding)
+                }
+                (Backend, T::BindComplete, State::GotBinding) => {
+                    read_backend_through!(<BindComplete>, self);
+                    Ok(State::ReadyForQuery)
+                }
+                (Backend, T::CommandComplete, State::AnsweringToSimpleQuery) |
+                (Backend, T::CommandComplete, State::CompletedSimpleCommand) |
+                (Backend, T::CommandComplete, State::GotSimpleQuery) => {
                     read_backend_through!(<CommandComplete>, self);
-                    Ok(State::CommandComplete)
+                    Ok(State::CompletedSimpleCommand)
                 },
-                (Backend, T::DataRow, State::QueryResponseWithRows) => {
+                (Backend, T::CommandComplete, State::AnsweringToExtendedQuery) |
+                (Backend, T::CommandComplete, State::ExecutingExtendedQuery) => {
+                    read_backend_through!(<CommandComplete>, self);
+                    Ok(State::CompletedExtendedQuery)
+                },
+                (Backend, T::DataRow, State::AnsweringToSimpleQuery) => {
                     read_backend_through!(<DataRow>, self);
-                    Ok(State::QueryResponseWithRows)
+                    Ok(State::AnsweringToSimpleQuery)
                 },
-                (Backend, T::EmptyQueryResponse, State::GotQuery) => {
+                (Backend, T::DataRow, State::AnsweringToExtendedQuery) |
+                (Backend, T::DataRow, State::ExecutingExtendedQuery) => {
+                    read_backend_through!(<DataRow>, self);
+                    Ok(State::AnsweringToExtendedQuery)
+                },
+                (Backend, T::EmptyQueryResponse, State::ExecutingExtendedQuery) => {
                     read_backend_through!(<EmptyQueryResponse>, self);
-                    Ok(State::GotEmptyQueryResponse)
+                    Ok(State::SeenEmptyExtendedQuery)
                 },
-                (Backend, T::ErrorResponse, State::CommandComplete) |
-                (Backend, T::ErrorResponse, State::GotEmptyQueryResponse) |
-                (Backend, T::ErrorResponse, State::GotQuery) |
-                (Backend, T::ErrorResponse, State::QueryAbortedByError) |
-                (Backend, T::ErrorResponse, State::QueryResponseWithRows) => {
+                (Backend, T::EmptyQueryResponse, State::GotSimpleQuery) => {
+                    read_backend_through!(<EmptyQueryResponse>, self);
+                    Ok(State::SeenEmptySimpleQuery)
+                },
+                (Backend, T::Execute_or_ErrorResponse, State::AbortedSimpleQuery) |
+                (Backend, T::Execute_or_ErrorResponse, State::AnsweringToSimpleQuery) |
+                (Backend, T::Execute_or_ErrorResponse, State::CompletedSimpleCommand) |
+                (Backend, T::Execute_or_ErrorResponse, State::GotSimpleQuery) |
+                (Backend, T::Execute_or_ErrorResponse, State::SeenEmptySimpleQuery) => {
                     read_backend_through!(<ErrorResponse>, self);
-                        Ok(State::QueryAbortedByError)
+                    Ok(State::AbortedSimpleQuery)
                 },
-                (Backend, T::ErrorResponse, _) => {
+                (Backend, T::Execute_or_ErrorResponse, State::GotBinding) |
+                (Backend, T::Execute_or_ErrorResponse, State::GotPreparedStatement) => {
+                    read_backend_through!(<ErrorResponse>, self);
+                    Ok(State::AbortedParsingOrBinding)
+                },
+                (Backend, T::Execute_or_ErrorResponse, State::AbortedExtendedQuery) |
+                (Backend, T::Execute_or_ErrorResponse, State::AnsweringToExtendedQuery) |
+                (Backend, T::Execute_or_ErrorResponse, State::CompletedExtendedQuery) |
+                (Backend, T::Execute_or_ErrorResponse, State::ExecutingExtendedQuery) |
+                (Backend, T::Execute_or_ErrorResponse, State::SeenEmptyExtendedQuery) => {
+                    read_backend_through!(<ErrorResponse>, self);
+                    Ok(State::AbortedExtendedQuery)
+                },
+                (Backend, T::Execute_or_ErrorResponse, _) => {
                     read_backend_through!(<ErrorResponse>, self);
                     return Ok(())
                 },
-                (Backend, T::NegotiateProtocolVersion, State::Startup) |
+                (Frontend, T::Execute_or_ErrorResponse, State::ReadyForQuery) |
+                (Frontend, T::Execute_or_ErrorResponse, State::SuspendedExtendedQuery) => {
+                    read_frontend_through!(<Execute>, self);
+                    Ok(State::ExecutingExtendedQuery)
+                },
+                (Frontend, T::GssResponse_or_Password_or_SaslResponses, State::AskedCleartextPassword) => {
+                    read_frontend_through!(<Password>, self);
+                    Ok(State::GotCleartextPassword)
+                },
+                (Frontend, T::GssResponse_or_Password_or_SaslResponses, State::AskedGssResponse) => {
+                    read_frontend_through!(<GssResponse>, self);
+                    Ok(State::GotGssResponse)
+                },
+                (Frontend, T::GssResponse_or_Password_or_SaslResponses, State::AskedMd5Password) => {
+                    read_frontend_through!(<Password>, self);
+                    Ok(State::GotMd5Password)
+                },
+                (Frontend, T::GssResponse_or_Password_or_SaslResponses, State::AskedSaslInitialResponse) => {
+                    read_frontend_through!(<SaslInitialResponse>, self);
+                    Ok(State::GotAnySaslResponse)
+                },
+                (Frontend, T::GssResponse_or_Password_or_SaslResponses, State::AskedSaslResponse) => {
+                    read_frontend_through!(<SaslResponse>, self);
+                    Ok(State::GotAnySaslResponse)
+                },
+                (Backend, T::NegotiateProtocolVersion, State::GotStartup) |
                 (Backend, T::NegotiateProtocolVersion, State::Authenticated) => {
                     read_backend_through!(<NegotiateProtocolVersion>, self);
                     Ok(state)
@@ -282,45 +361,46 @@ where
                     read_backend_through!(<NoticeResponse>, self);
                     Ok(state)
                 },
-                (Backend, T::ParameterStatus, State::Authenticated) => {
+                (Backend, T::ParameterStatus_or_Sync, State::Authenticated) => {
                     read_backend_through!(<ParameterStatus>, self);
                     Ok(State::Authenticated)
                 },
-                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedCleartextPassword) => {
-                    read_frontend_through!(<Password>, self);
-                    Ok(State::GotCleartextPassword)
+                (Frontend, T::ParameterStatus_or_Sync, State::AbortedExtendedQuery) |
+                (Frontend, T::ParameterStatus_or_Sync, State::CompletedExtendedQuery) |
+                (Frontend, T::ParameterStatus_or_Sync, State::SeenEmptyExtendedQuery) |
+                (Frontend, T::ParameterStatus_or_Sync, State::SuspendedExtendedQuery) => {
+                    read_frontend_through!(<Sync>, self);
+                    Ok(State::GotSync)
                 },
-                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedGssResponse) => {
-                    read_frontend_through!(<GssResponse>, self);
-                    Ok(State::GotGssResponse)
+                (Frontend, T::Parse, State::ReadyForQuery) => {
+                    read_frontend_through!(<Parse>, self);
+                    Ok(State::GotPreparedStatement)
                 },
-                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedMd5Password) => {
-                    read_frontend_through!(<Password>, self);
-                    Ok(State::GotMd5Password)
+                (Backend, T::ParseComplete, State::GotPreparedStatement) => {
+                    read_backend_through!(<ParseComplete>, self);
+                    Ok(State::ReadyForQuery)
                 },
-                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedSaslInitialResponse) => {
-                    read_frontend_through!(<SaslInitialResponse>, self);
-                    Ok(State::GotAnySaslResponse)
-                },
-                (Frontend, T::GssResponse_Or_Password_Or_SaslResponses, State::AskedSaslResponse) => {
-                    read_frontend_through!(<SaslResponse>, self);
-                    Ok(State::GotAnySaslResponse)
+                (Backend, T::PortalSuspended, State::AnsweringToExtendedQuery) => {
+                    read_backend_through!(<PortalSuspended>, self);
+                    Ok(State::SuspendedExtendedQuery)
                 },
                 (Frontend, T::Query, State::ReadyForQuery) => {
                     read_frontend_through!(<Query>, self);
-                    Ok(State::GotQuery)
+                    Ok(State::GotSimpleQuery)
                 },
-                (Backend, T::ReadyForQuery, State::GotAllBackendParams) |
-                (Backend, T::ReadyForQuery, State::GotEmptyQueryResponse) |
-                (Backend, T::ReadyForQuery, State::CommandComplete) |
-                (Backend, T::ReadyForQuery, State::QueryAbortedByError) => {
+                (Backend, T::ReadyForQuery, State::AbortedParsingOrBinding) |
+                (Backend, T::ReadyForQuery, State::AbortedSimpleQuery) |
+                (Backend, T::ReadyForQuery, State::CompletedSimpleCommand) |
+                (Backend, T::ReadyForQuery, State::SentAllBackendParams) |
+                (Backend, T::ReadyForQuery, State::GotSync) |
+                (Backend, T::ReadyForQuery, State::SeenEmptySimpleQuery) => {
                     read_backend_through!(<ReadyForQuery>, self);
                     Ok(State::ReadyForQuery)
                 },
-                (Backend, T::RowDescription, State::GotQuery) |
-                (Backend, T::RowDescription, State::CommandComplete) => {
+                (Backend, T::RowDescription, State::GotSimpleQuery) |
+                (Backend, T::RowDescription, State::CompletedSimpleCommand) => {
                     read_backend_through!(<RowDescription>, self);
-                    Ok(State::QueryResponseWithRows)
+                    Ok(State::AnsweringToSimpleQuery)
                 },
                 (Frontend, T::Terminate, State::ReadyForQuery) => {
                     read_frontend_through!(<Terminate>, self);
@@ -335,38 +415,38 @@ where
         use Authentication as Auth;
         let authentication = read_backend_through!(<Authentication>, self);
         match (authentication, &state) {
-            (Auth::CleartextPassword, State::Startup) =>
+            (Auth::CleartextPassword, State::GotStartup) =>
                 Ok(State::AskedCleartextPassword),
-            (Auth::Gss, State::Startup) |
-            (Auth::Sspi, State::Startup) =>
+            (Auth::Gss, State::GotStartup) |
+            (Auth::Sspi, State::GotStartup) =>
                 Ok(State::AskedGssResponse),
             (Auth::GssContinue {..}, State::GotGssResponse) =>
                 Ok(State::AskedGssResponse),
-            (Auth::Md5Password {..}, State::Startup) =>
+            (Auth::Md5Password {..}, State::GotStartup) =>
                 Ok(State::AskedMd5Password),
             (Auth::Ok, State::FinishedSasl) |
             (Auth::Ok, State::GotCleartextPassword) |
             (Auth::Ok, State::GotGssResponse) |
             (Auth::Ok, State::GotMd5Password) |
-            (Auth::Ok, State::Startup) =>
+            (Auth::Ok, State::GotStartup) =>
                 Ok(State::Authenticated),
-            (Auth::KerberosV5, State::Startup) =>
+            (Auth::KerberosV5, State::GotStartup) =>
                 Err(Unsupported(
                     "AuthenticationKerberosV5 is unsupported after PostgreSQL 9.3 \
                     which in turn is unsupported by PostgreSQL maintainers"
                 )),
-            (Auth::Sasl {..}, State::Startup) =>
+            (Auth::Sasl {..}, State::GotStartup) =>
                 Ok(State::AskedSaslInitialResponse),
             (Auth::SaslContinue {..}, State::GotAnySaslResponse) =>
                 Ok(State::AskedSaslResponse),
             (Auth::SaslFinal {..}, State::GotAnySaslResponse) =>
                 Ok(State::FinishedSasl),
-            (Auth::ScmCredential, State::Startup) =>
+            (Auth::ScmCredential, State::GotStartup) =>
                 Err(Unsupported(
                     "This message type is only issued by pre-9.1 servers. \
                     It may eventually be removed from the protocol specification."
                 )),
-            (_, State::Startup) =>
+            (_, State::GotStartup) =>
                 Err(Todo("Authentication::* is not fully implemented yet".into())),
             _ =>
                 Err(UnexpectedType(state, Side::Backend, type_byte)),

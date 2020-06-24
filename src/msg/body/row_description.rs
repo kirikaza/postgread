@@ -1,5 +1,6 @@
+use crate::msg::parts::{Format, decode_vec};
 use crate::msg::type_byte::TypeByte;
-use crate::msg::util::decode::{*, Problem::*};
+use crate::msg::util::decode::*;
 use ::std::fmt::{self, Debug, Formatter};
 
 #[derive(Debug, PartialEq)]
@@ -32,12 +33,6 @@ impl Debug for Field {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Format {
-    Text,
-    Binary,
-}
-
 impl RowDescription {
     pub const TYPE_BYTE: u8 = b'T';
 }
@@ -46,28 +41,20 @@ impl MsgDecode for RowDescription {
     const TYPE_BYTE_OPT: Option<TypeByte> = Some(TypeByte::RowDescription);
 
     fn decode_body(bytes: &mut BytesSource) -> DecodeResult<Self> {
-        let count = bytes.take_u16()?;
-        let mut fields = Vec::with_capacity(count as usize);
-        for index in 0..count {
-            fields.push(Field::decode(bytes, index)?)
-        }
+        let fields = decode_vec(bytes.take_u16()? as usize, bytes)?;
         Ok(Self { fields })
     }
 }
 
-impl Field {
-    pub fn decode(bytes: &mut BytesSource, index: u16) -> DecodeResult<Self> {
+impl PartDecode for Field {
+    fn decode(bytes: &mut BytesSource) -> DecodeResult<Self> {
         let name = bytes.take_until_null()?;
         let column_oid = bytes.take_u32()?;
         let column_attr_num = bytes.take_u16()?;
         let type_oid = bytes.take_u32()?;
         let type_size = bytes.take_u16()? as i16;
         let type_modifier = bytes.take_u32()? as i32;
-        let format = match bytes.take_u16()? {
-            0 => Format::Text,
-            1 => Format::Binary,
-            x => return Err(Unknown(format!("Field[{}] has unknown format {}", index, x)))
-        };
+        let format = Format::decode(bytes)?;
         Ok(Self { name, column_oid, column_attr_num, type_oid, type_size, type_modifier, format })
     }
 }

@@ -23,5 +23,5 @@ fn assert_decode<Msg>(
 ) where Msg: Debug + MsgDecode + PartialEq {
     let mut bytes_source = BytesSource::new(bytes);
     assert_eq!(expected, Msg::decode_body(&mut bytes_source));
-    assert_eq!(0, bytes_source.left());
+    assert_eq!(0, bytes_source.left(), "left {} byte(s) not decoded", bytes_source.left());
 }

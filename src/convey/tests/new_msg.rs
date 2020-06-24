@@ -66,6 +66,30 @@ pub mod backend_key_data {
     }
 }
 
+pub mod bind {
+    use crate::msg::body::bind::*;
+    export_wrapper!(FrontendMsg::Bind);
+
+    pub fn new(_: ()) -> Bind {
+        Bind {
+            prepared_statement_name: "".into(),
+            portal_name: "".into(),
+            parameters_formats: vec![],
+            parameters_values: vec![],
+            results_formats: vec![],
+        }
+    }
+}
+
+pub mod bind_complete {
+    use crate::msg::body::bind_complete::*;
+    export_wrapper!(BackendMsg::BindComplete);
+
+    pub fn new(_: ()) -> BindComplete {
+        BindComplete()
+    }
+}
+
 pub mod command_complete {
     use crate::msg::body::command_complete::*;
     export_wrapper!(BackendMsg::CommandComplete);
@@ -79,12 +103,12 @@ pub mod command_complete {
 
 pub mod data_row {
     use crate::msg::body::data_row::*;
+    use crate::msg::parts::{Bytes, Value};
     export_wrapper!(BackendMsg::DataRow);
 
     pub fn columns(values: &[Option<&'static str>]) -> DataRow {
-        use Column::*;
         let columns = values.iter().map(|opt| {
-            opt.map_or(Null, |str| Value(str.into()))
+            opt.map_or(Value::Null, |str| Value::Bytes(Bytes(str.into())))
         }).collect();
         DataRow { columns }
     }
@@ -109,6 +133,18 @@ pub mod error_response {
             message: Some(message.into()),
             ..Default::default()
         })
+    }
+}
+
+pub mod execute {
+    use crate::msg::body::execute::*;
+    export_wrapper!(FrontendMsg::Execute);
+
+    pub fn new(_: ()) -> Execute {
+        Execute {
+            portal_name: "".into(),
+            rows_limit: 0,
+        }
     }
 }
 
@@ -194,12 +230,43 @@ pub mod parameter_status {
     }
 }
 
+pub mod parse {
+    use crate::msg::body::parse::*;
+    export_wrapper!(FrontendMsg::Parse);
+
+    pub fn new(_: ()) -> Parse {
+        Parse {
+            prepared_statement_name: "".into(),
+            query: "".into(),
+            parameters_types: vec![],
+        }
+    }
+}
+
+pub mod parse_complete {
+    use crate::msg::body::parse_complete::*;
+    export_wrapper!(BackendMsg::ParseComplete);
+
+    pub fn new(_: ()) -> ParseComplete {
+        ParseComplete()
+    }
+}
+
 pub mod password {
     use crate::msg::body::password::*;
     export_wrapper!(FrontendMsg::Password);
 
     pub fn new(password: &'static str) -> Password {
         Password(password.into())
+    }
+}
+
+pub mod portal_suspended {
+    use crate::msg::body::portal_suspended::*;
+    export_wrapper!(BackendMsg::PortalSuspended);
+
+    pub fn new(_: ()) -> PortalSuspended {
+        PortalSuspended()
     }
 }
 
@@ -222,6 +289,7 @@ pub mod ready_for_query {
 }
 
 pub mod row_description {
+    use crate::msg::parts::Format;
     use crate::msg::body::row_description::*;
     export_wrapper!(BackendMsg::RowDescription);
 
@@ -259,6 +327,15 @@ pub mod sasl_response {
         SaslResponse {
             mechanism_data: mechanism_data.into(),
         }
+    }
+}
+
+pub mod sync {
+    use crate::msg::body::sync::*;
+    export_wrapper!(FrontendMsg::Sync);
+
+    pub fn new(_: ()) -> Sync {
+        Sync()
     }
 }
 
