@@ -7,4 +7,5 @@ extern crate hex;
 
 pub mod convey;
 pub mod msg;
+pub mod server;
 pub mod tls;

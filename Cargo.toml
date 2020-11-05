@@ -5,16 +5,22 @@ authors = ["Kirill Kazakov <k@kirikaza.ru>"]
 edition = "2018"
 
 [dependencies]
-native-tls = "0.2.3"
+native-tls = { version = "0.2.4", features = ["vendored"] }
 async-native-tls = "0.3.2"
 async-std = "1.6.5"
 async-trait = "0.1.24"
+chrono = "0.4"
 futures = "0.3.4"
 hex = "0.4"
 num_enum = "0.5.0"
 structopt = { version = "0.2", default-features = false }
 
 [dev-dependencies]
+async-std = { version = "1.6.5", features = ["attributes", "tokio02"] }
+bollard = "0.8.0"
 bytes = "0.4"
-maplit = "1.0.2"
 claim = "0.3.1"
+const_format = "0.2.8"
+maplit = "1.0.2"
+lazy_static = "1.4.0"
+rstest = "0.6.4"
