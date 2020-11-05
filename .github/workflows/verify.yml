@@ -10,16 +10,23 @@ jobs:
     - name: Install Rust toolchain
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: 1.44.1
+        toolchain: 1.47.0
         override: true
     - name: Build
       uses: actions-rs/cargo@v1
       with:
         command: build
+    - name: Pull postgres image
+      run: docker pull postgres:12-alpine
+    - name: Pull test-client image
+      run: docker pull postgread/test-client
+    - name: Install socat
+      run: sudo apt install socat
     - name: Run tests
       uses: actions-rs/cargo@v1
       with:
         command: test
+        args: --test tests -- --nocapture
     - name: Install clippy
       run: rustup component add clippy
     - name: Check with clippy
