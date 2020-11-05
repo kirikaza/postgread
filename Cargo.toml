@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 native-tls = "0.2.3"
 async-native-tls = "0.3.2"
-async-std = "1.5"
+async-std = "1.6.5"
 async-trait = "0.1.24"
 futures = "0.3.4"
 hex = "0.4"
