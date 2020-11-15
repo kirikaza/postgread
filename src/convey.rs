@@ -131,7 +131,7 @@ where
     BackTlsClient: TlsClient<BackPlain> + Send,
     FrontTlsServer::Tls: AsyncRead + AsyncWrite,
     BackTlsClient::Tls: AsyncRead + AsyncWrite,
-    Callback: Fn(Message) -> () + Send,
+    Callback: Fn(Message) + Send,
 {
     Conveyor::new(
         frontend,
@@ -204,7 +204,7 @@ where
     BackTlsClient: TlsClient<BackPlain> + Send,
     FrontTlsServer::Tls: ConveyReader + ConveyWriter,
     BackTlsClient::Tls: ConveyReader + ConveyWriter,
-    Callback: FnMut(Message) -> () + Send,
+    Callback: FnMut(Message) + Send,
 {
     fn new(
         frontend: FrontPlain,
@@ -579,8 +579,11 @@ where
     use StreamWrap::*;
     if let Some(plain_stream) = wrap.replace_plain_with(TlsHandshake) {
         let tls_stream = fn_handshake(plain_stream).await.unwrap();
-        core::mem::replace(wrap, Tls(tls_stream));
-        Ok(())
+        if let TlsHandshake = core::mem::replace(wrap, Tls(tls_stream)) {
+            Ok(())
+        } else {
+            Err(TlsError(TlsError::HandshakeDisrupted))
+        }
     } else {
         Err(TlsError(TlsError::HandshakeDisrupted))
     }
