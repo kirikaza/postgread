@@ -2,7 +2,7 @@ use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 use ::std::fmt::{self, Debug, Formatter};
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct CommandComplete {
     pub tag: Vec<u8>,
 }

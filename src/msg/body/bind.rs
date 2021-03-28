@@ -2,7 +2,7 @@ use crate::msg::parts::{Format, Text, Value, decode_vec};
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Bind {
     pub prepared_statement_name: Text,
     pub portal_name: Text,

@@ -2,7 +2,7 @@ use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 use ::std::fmt::{self, Debug, Formatter};
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ParameterStatus {
     pub name: Vec<u8>,
     pub value: Vec<u8>,

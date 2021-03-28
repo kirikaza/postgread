@@ -1,7 +1,7 @@
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::{*, Problem::*};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Authentication {
     CleartextPassword,
     Gss,

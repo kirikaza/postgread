@@ -1,7 +1,7 @@
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BackendKeyData {
     pub process_id: u32,
     pub secret_key: u32,

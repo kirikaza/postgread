@@ -2,20 +2,20 @@ use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 use ::std::fmt::{self, Debug, Formatter};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Initial {
     Cancel(Cancel),
     TLS,
     Startup(Startup),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Cancel {
     pub process_id: u32,
     pub secret_key: u32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Startup {
     pub version: Version,
     pub params: Vec<StartupParam>,
@@ -41,7 +41,7 @@ impl MsgDecode for Initial {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Version {
     pub major: u16,
     pub minor: u16,
@@ -54,7 +54,7 @@ impl Version {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct StartupParam {
     pub name: Vec<u8>,
     pub value: Vec<u8>,

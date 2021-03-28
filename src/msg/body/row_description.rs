@@ -3,12 +3,12 @@ use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 use ::std::fmt::{self, Debug, Formatter};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RowDescription {
     pub fields: Vec<Field>,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Field {
     pub name: Vec<u8>,
     pub column_oid: u32,

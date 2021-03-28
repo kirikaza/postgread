@@ -1,7 +1,7 @@
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EmptyQueryResponse {}
 
 impl EmptyQueryResponse {
