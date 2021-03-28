@@ -2,7 +2,7 @@ use crate::msg::parts::Text;
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Execute {
     pub portal_name: Text,
     pub rows_limit: u32,

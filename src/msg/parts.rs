@@ -2,19 +2,19 @@ use crate::msg::util::decode::{*, Problem::*};
 use ::std::fmt::{self, Debug, Formatter};
 use ::hex;
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Bytes(pub Vec<u8>);
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Format {
     Text,
     Binary,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Text(pub Vec<u8>);
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Null,
     Bytes(Bytes),

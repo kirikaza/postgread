@@ -2,7 +2,7 @@ use crate::msg::parts::{Text, decode_vec};
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NegotiateProtocolVersion {
     pub newest_backend_minor: u32,
     pub unrecognized_options: Vec<Text>,

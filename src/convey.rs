@@ -1,5 +1,6 @@
-#[cfg(test)]
-mod tests;
+pub mod util;
+
+#[cfg(test)] mod tests;
 
 use crate::msg::body::*;
 use crate::msg::type_byte::TypeByte;

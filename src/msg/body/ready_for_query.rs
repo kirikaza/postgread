@@ -1,12 +1,12 @@
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::{*, Problem::*};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReadyForQuery {
     pub status: Status,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Status {
     Idle,
     Transaction,

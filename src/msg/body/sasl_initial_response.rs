@@ -2,7 +2,7 @@ use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::{*, Problem::*};
 use ::std::fmt::{self, Debug, Formatter};
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct SaslInitialResponse {
     pub selected_mechanism: Vec<u8>,
     pub mechanism_data: Option<Vec<u8>>,

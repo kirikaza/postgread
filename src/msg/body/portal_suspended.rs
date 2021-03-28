@@ -1,7 +1,7 @@
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::{BytesSource, DecodeResult, MsgDecode};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PortalSuspended();
 
 impl MsgDecode for PortalSuspended {

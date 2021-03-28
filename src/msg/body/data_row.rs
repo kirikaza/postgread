@@ -2,7 +2,7 @@ use crate::msg::parts::{Value, decode_vec};
 use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DataRow {
     pub columns: Vec<Value>,
 }

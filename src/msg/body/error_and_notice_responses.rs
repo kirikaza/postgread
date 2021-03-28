@@ -2,10 +2,10 @@ use crate::msg::type_byte::TypeByte;
 use crate::msg::util::decode::{*, Problem::*};
 use ::std::fmt::{self, Debug, Formatter};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ErrorResponse(pub ErrorOrNoticeFields);
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NoticeResponse(pub ErrorOrNoticeFields);
 
 impl ErrorResponse {
@@ -32,7 +32,7 @@ impl MsgDecode for NoticeResponse {
     }
 }
 
-#[derive(Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct ErrorOrNoticeFields {
     // https://www.postgresql.org/docs/current/protocol-error-fields.html
     pub localized_severity: Option<Vec<u8>>,
