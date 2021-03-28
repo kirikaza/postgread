@@ -35,22 +35,15 @@ pub struct Config {
     pub cert_p12_password: String,
 }
 
-fn dump_msg(listen_port: u16, id: usize, msg: Message) {
-    match msg {
-        Message::Backend(backend_msg) =>
-            println!("{} postgread[:{}] #{} got from server {:?}", format_now(), listen_port, id, backend_msg),
-        Message::Frontend(frontend_msg) =>
-            println!("{} postgread[:{}] #{} got from client {:?}", format_now(), listen_port, id, frontend_msg),
-    }
-}
-
-async fn handle_client(
+async fn handle_client<Callback>(
     target_host: String,
     target_port: u16,
     tls_acceptor: TlsAcceptor,
     client_id: usize,
-    client: TcpStream
-) -> io::Result<()> {
+    client: TcpStream,
+    callback: Arc<Callback>,
+) -> io::Result<()>
+where Callback: for<'a> Fn(Message<'a>) + Send + Sync + 'static {
     let listen_port = client.local_addr().map(|addr| addr.port()).unwrap_or(0);
     println!("postgread[:{}] #{} is new connection from {:?}", listen_port, client_id, client.peer_addr().unwrap());
     let target_ip = target_host.parse()
@@ -62,7 +55,7 @@ async fn handle_client(
                 println!("{} postgread[:{}] #{} connected to target server {}", format_now(), listen_port, client_id, server.local_addr().unwrap());
                 let frontend_tls_server = NativeTlsServer(&tls_acceptor);
                 let backend_tls_client = NativeTlsClient { connector: &new_tls_connector(), hostname: "localhost" };
-                let result = convey(client, server, frontend_tls_server, backend_tls_client, |msg| dump_msg(listen_port, client_id, msg)).await;
+                let result = convey(client, server, frontend_tls_server, backend_tls_client, &*callback).await;
                 println!("{} postgread[:{}] #{} stopped conveying with {:?}", format_now(), listen_port, client_id, result);
             },
             Err(err) => {
@@ -108,7 +101,8 @@ impl Server {
     }
 }
 
-pub async fn loop_accepting(server: Server) -> io::Result<()> {
+pub async fn loop_accepting<Callback>(server: Server, callback: Arc<Callback>) -> io::Result<()>
+where Callback: for<'a> Fn(Message<'a>) + Send + Sync + 'static {
     let Server { tls_acceptor, tcp_listener, config } = server;
     let target_host = config.target_host;
     let target_port = config.target_port;
@@ -119,10 +113,11 @@ pub async fn loop_accepting(server: Server) -> io::Result<()> {
         let tls_acceptor = tls_acceptor.clone();
         let next_client_id = next_client_id.clone();
         let target_host = target_host.clone();
+        let callback = callback.clone();
         task::spawn(async move {
             let client_id = next_client_id.fetch_add(1, Ordering::SeqCst);
             let local_port = stream.local_addr().map(|addr| addr.port()).unwrap_or(0);
-            handle_client(target_host, target_port, tls_acceptor, client_id, stream).await.unwrap_or_else(|err| {
+            handle_client(target_host, target_port, tls_acceptor, client_id, stream, callback).await.unwrap_or_else(|err| {
                 println!("{} postgread[:{}] #{} could not be handled: {:?}", format_now(), local_port, client_id, err)
             });
         });
