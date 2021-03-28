@@ -13,12 +13,14 @@ use crate::e2e::port_forwarder::PortForwarder;
 use crate::common::global_fixture::*;
 
 use postgread::server::{self, Server};
+use postgread::convey::Message;
 
 use ::async_std::task;
 use ::rstest::*;
 use ::std::env;
 use ::std::io;
 use ::std::net::Ipv4Addr;
+use ::std::sync::Arc;
 
 #[rstest]
 async fn t1(test_env: TestEnv) {
@@ -43,7 +45,7 @@ impl TestEnv {
             .expect("could not start postgread server");
         let server_port = server.get_listen_port()
             .expect("could not get port listened by postgread server");
-        let server_handle = task::spawn(server::loop_accepting(server));
+        let server_handle = task::spawn(server::loop_accepting(server, Arc::new(|_: Message| {})));
         let port_forwarder = PortForwarder::start(server_port, containers_ports.test_client)
             .expect("could not start port forwarder (test client container -> postgread)");
         Self {
