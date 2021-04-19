@@ -1,10 +1,8 @@
 use crate::common::container::{self, Started, Readiness};
-use crate::common::socat;
 
 use ::async_std::task::{self, JoinHandle};
 use ::futures::join;
 use ::std::env;
-use ::std::net::Ipv4Addr;
 use ::std::time::Duration;
 
 pub use crate::common::container::ExecOutcome;
@@ -33,13 +31,13 @@ fn read_reuse_envar() -> bool {
     env::var(REUSE_ENVAR).unwrap_or_default() == "1"
 }
 
-pub fn create_or_start_all() -> Result<Containers, String> {
+pub fn create_or_start_all(test_client_ssh_pub_key_content: &str) -> Result<Containers, String> {
     let reuse = read_reuse_envar();
     eprintln!("creating/starting all containers (reuse={})", reuse);
     let (pg_server, test_client) = task::block_on(async {
         join!(
             create_or_start_pg_server(reuse),
-            create_or_start_test_client(reuse),
+            create_or_start_test_client(reuse, test_client_ssh_pub_key_content),
         )
     });
     let (pg_server, test_client) = (pg_server?, test_client?);
@@ -117,23 +115,15 @@ async fn create_or_start_pg_server(reuse: bool) -> Result<Started, String> {
         .map_err(|e| format!("could not create/start PG server container: {}", e))
 }
 
-async fn create_or_start_test_client(reuse: bool) -> Result<Started, String> {
-    use socat::*;
-    use AddrOption::*;
-    let args_builder = ArgsBuilder {
-        log_level: LogLevel::Notice,
-        log_program_name: Some("test_client"),
-        addr1: Addr::tcp4_listen(None, TEST_CLIENT_EXPOSED_PORT, &[Fork]),
-        addr2: Addr::tcp4_listen(Some(Ipv4Addr::LOCALHOST), PG_SERVER_EXPOSED_PORT, &[ReuseAddr, ReusePort]),
-    };
-    let args: Vec<String> = args_builder.build();
-    let args_refs: Vec<&str> = args.iter().map(|owned| owned.as_ref()).collect();
+async fn create_or_start_test_client(reuse: bool, ssh_pub_key_content: &str) -> Result<Started, String> {
     container::create_or_start(
         TEST_CLIENT_CONTAINER_NAME,
         reuse,
-        "postgread/test-client",
-        args_refs,
-        hashmap![],
+        "postgread/test-client:2",
+        vec![],
+        hashmap![
+            "POSTGREAD_TEST_CLIENT_SSH_PUB_KEY_CONTENT" => ssh_pub_key_content
+        ],
         concatcp!(TEST_CLIENT_EXPOSED_PORT, "/tcp"),
         &["lsof", "-n", "-P", "-a", "-i", concatcp!("tcp:", TEST_CLIENT_EXPOSED_PORT), "-s", "tcp:listen"],
         TEST_CLIENT_HEALTH_CMD_TIMEOUT,
@@ -163,6 +153,6 @@ const PG_SERVER_HEALTH_CMD_TIMEOUT: Duration = Duration::from_secs(10);
 const PG_SERVER_READINESS_CHECKS: u8 = 180;
 
 const TEST_CLIENT_CONTAINER_NAME: &str = "postgread_test_client";
-const TEST_CLIENT_EXPOSED_PORT: u16 = 4000;
+const TEST_CLIENT_EXPOSED_PORT: u16 = 22;
 const TEST_CLIENT_HEALTH_CMD_TIMEOUT: Duration = Duration::from_secs(2);
 const TEST_CLIENT_READINESS_CHECKS: u8 = 30;

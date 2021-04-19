@@ -10,7 +10,7 @@ jobs:
     - name: Install Rust toolchain
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: 1.47.0
+        toolchain: 1.50.0
         override: true
     - name: Build
       uses: actions-rs/cargo@v1
@@ -19,14 +19,17 @@ jobs:
     - name: Pull postgres image
       run: docker pull postgres:12-alpine
     - name: Pull test-client image
-      run: docker pull postgread/test-client
-    - name: Install socat
-      run: sudo apt install socat
+      run: docker pull postgread/test-client:2
+    - name: Create an SSH priv/pub key pair
+      run: ssh-keygen -t rsa -f test_ssh_key -N ''
     - name: Run tests
       uses: actions-rs/cargo@v1
       with:
         command: test
         args: --test tests -- --nocapture
+      env:
+        POSTGREAD_TEST_REUSE_CONTAINERS: 1
+        POSTGREAD_TEST_CLIENT_SSH_PRIV_KEY_PATH: test_ssh_key
     - name: Install clippy
       run: rustup component add clippy
     - name: Check with clippy
