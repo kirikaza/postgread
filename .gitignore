@@ -1,6 +1,7 @@
 /Cargo.lock
 /.idea/
 /target/
+/test_ssh_key*
 *.iml
 *.rs.bk
 *~
