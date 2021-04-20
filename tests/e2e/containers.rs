@@ -31,12 +31,12 @@ fn read_reuse_envar() -> bool {
     env::var(REUSE_ENVAR).unwrap_or_default() == "1"
 }
 
-pub fn create_or_start_all(test_client_ssh_pub_key_content: &str) -> Result<Containers, String> {
+pub fn create_or_start_all(pg_server_postgres_passwd: &str, test_client_ssh_pub_key_content: &str) -> Result<Containers, String> {
     let reuse = read_reuse_envar();
     eprintln!("creating/starting all containers (reuse={})", reuse);
     let (pg_server, test_client) = task::block_on(async {
         join!(
-            create_or_start_pg_server(reuse),
+            create_or_start_pg_server(reuse, pg_server_postgres_passwd),
             create_or_start_test_client(reuse, test_client_ssh_pub_key_content),
         )
     });
@@ -99,13 +99,13 @@ pub async fn exec_on_test_client(cmd: Vec<&str>) -> Result<ExecOutcome, String> 
     container::exec(TEST_CLIENT_CONTAINER_NAME, cmd).await
 }
 
-async fn create_or_start_pg_server(reuse: bool) -> Result<Started, String> {
+async fn create_or_start_pg_server(reuse: bool, postgres_passwd: &str) -> Result<Started, String> {
     container::create_or_start(
         PG_SERVER_CONTAINER_NAME,
         reuse,
         "postgres:12-alpine",
         vec![],
-        hashmap!["POSTGRES_PASSWORD" => "secret"],
+        hashmap!["POSTGRES_PASSWORD" => postgres_passwd],
         concatcp!(PG_SERVER_EXPOSED_PORT, "/tcp"),
         &["pg_isready", "--quiet", "--timeout=0"],
         PG_SERVER_HEALTH_CMD_TIMEOUT,

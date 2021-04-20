@@ -106,10 +106,16 @@ impl GlobalFixture for ContainersGlobalFixture {
     fn setup() -> Result<(Self::TestContext, Self::TearDownHandle), String> {
         let ssh_keys = Self::read_ssh_keys()
             .map_err(|e| format!("specify a separate SSH priv/pub keypair for the tests: {}", e))?;
+        let pg_server_postgres_passwd = Self::read_postgres_passwd()
+            .map_err(|e| format!("specify a password for user postgres on PG server: {}", e))?;
         env::set_var("TZ", "UTC");  // as inside containers
-        let Containers { ports, logs_watchers } = containers::create_or_start_all(&ssh_keys.pub_key_content)?;
+        let Containers { ports, logs_watchers } = containers::create_or_start_all(
+            &pg_server_postgres_passwd,
+            &ssh_keys.pub_key_content,
+        )?;
         let context = ContainersTestContext {
             containers_ports: ports,
+            pg_server_postgres_passwd,
             test_client_ssh_priv_key_path: ssh_keys.priv_key_path
         };
         let tear_down = logs_watchers;
@@ -134,6 +140,7 @@ impl GlobalFixture for ContainersGlobalFixture {
 #[derive(Clone)]
 struct ContainersTestContext {
     containers_ports: containers::Ports,
+    pg_server_postgres_passwd: String,
     test_client_ssh_priv_key_path: String,
 }
 
@@ -144,6 +151,12 @@ struct SshKeys {
 
 impl ContainersGlobalFixture {
     const SSH_PRIV_KEY_PATH_ENVAR: &'static str = "POSTGREAD_TEST_CLIENT_SSH_PRIV_KEY_PATH";
+    const POSTGRES_PASSWD_ENVAR: &'static str = "POSTGREAD_TEST_PG_SERVER_PASSWD";
+
+    fn read_postgres_passwd() -> Result<String, String> {
+        env::var(Self::POSTGRES_PASSWD_ENVAR)
+            .map_err(|e| format!("envar \"{}\": {}", Self::POSTGRES_PASSWD_ENVAR, e.to_string()))
+    }
 
     fn read_ssh_keys() -> Result<SshKeys, String> {
         let priv_key_path = env::var(Self::SSH_PRIV_KEY_PATH_ENVAR)
