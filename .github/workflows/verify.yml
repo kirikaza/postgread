@@ -28,8 +28,9 @@ jobs:
         command: test
         args: --test tests -- --nocapture
       env:
-        POSTGREAD_TEST_REUSE_CONTAINERS: 1
         POSTGREAD_TEST_CLIENT_SSH_PRIV_KEY_PATH: test_ssh_key
+        POSTGREAD_TEST_PG_SERVER_PASSWD: secret
+        POSTGREAD_TEST_REUSE_CONTAINERS: 1
     - name: Install clippy
       run: rustup component add clippy
     - name: Check with clippy
