@@ -60,6 +60,10 @@ pub struct StartupParam {
     pub value: Vec<u8>,
 }
 impl StartupParam {
+    pub fn new(name: Vec<u8>, value: Vec<u8>) -> Self {
+        Self { name, value }
+    }
+
     fn decode_many(bytes: &mut BytesSource) -> DecodeResult<Vec<Self>> {
         let mut params = vec![];
         loop {

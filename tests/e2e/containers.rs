@@ -149,7 +149,7 @@ fn print_test_client_log(log: Result<String, String>) {
 
 const PG_SERVER_CONTAINER_NAME: &str = "postgread_test_pg_server";
 const PG_SERVER_EXPOSED_PORT: u16 = 5432;
-const PG_SERVER_HEALTH_CMD_TIMEOUT: Duration = Duration::from_secs(10);
+const PG_SERVER_HEALTH_CMD_TIMEOUT: Duration = Duration::from_secs(2);
 const PG_SERVER_READINESS_CHECKS: u8 = 180;
 
 const TEST_CLIENT_CONTAINER_NAME: &str = "postgread_test_client";

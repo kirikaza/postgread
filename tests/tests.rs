@@ -3,6 +3,7 @@ mod e2e;
 
 extern crate bollard;  // common::docker
 extern crate chrono;  // common::container
+#[macro_use] extern crate claim;
 #[macro_use] extern crate const_format;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate maplit;  // common::docker
@@ -12,8 +13,11 @@ use crate::e2e::containers::{self, Containers, ExecOutcome};
 use crate::e2e::ssh_port_forwarder::{self, SshPortForwarder};
 use crate::common::global_fixture::*;
 
-use postgread::server::{self, Server};
 use postgread::convey::Message;
+use postgread::convey::util::{BackendMsgClone, FrontendMsgClone};
+use postgread::convey::util::MessageClone::{self, *};
+use postgread::msg::body::{*, initial::*};
+use postgread::server::{self, Server};
 
 use ::async_std::task;
 use ::rstest::*;
@@ -24,9 +28,52 @@ use ::std::net::Ipv4Addr;
 use ::std::path;
 use ::std::sync::Arc;
 
+macro_rules! backend {
+    ( $Msg:ident $args:tt ) => { Backend(BackendMsgClone::$Msg($Msg $args)) };
+    ( $Msg:ident::$ctor:ident ) => { Backend(BackendMsgClone::$Msg($Msg::$ctor)) };
+    ( $Msg:ident::$ctor:ident $args:tt ) => { Backend(BackendMsgClone::$Msg($Msg::$ctor $args)) };
+}
+
+macro_rules! frontend {
+    ( $Msg:ident $args:tt ) => { Frontend(FrontendMsgClone::$Msg($Msg $args)) };
+    ( $Msg:ident::$ctor:ident ) => { Frontend(FrontendMsgClone::$Msg($Msg::$ctor)) };
+    ( $Msg:ident::$ctor:ident $args:tt ) => { Frontend(FrontendMsgClone::$Msg($Msg::$ctor $args)) };
+}
+
 #[rstest]
 async fn t1(test_env: TestEnv) {
-    println!("{:?}", test_env.exec_on_client(vec!["psql", "-h", "localhost", "-U", "missing"]).await.unwrap());
+    let conn_info = format!("host=localhost user=postgres password={}", test_env.postgres_passwd());
+    let ExecOutcome { exit_code, std_out_err } = test_env.exec_on_client(vec!["psql", &conn_info]).await.unwrap();
+    assert_matches!(std_out_err.as_slice(), []);
+    assert_eq!(exit_code, 0);
+    let messages = test_env.messages.lock().unwrap();
+    assert_eq!(messages[0], frontend!(Initial::TLS));
+    assert_eq!(messages[1], frontend!(Initial::Startup(Startup {
+        version: Version { major: 3, minor: 0 },
+        params: vec![
+            StartupParam::new("user".into(), "postgres".into()),
+            StartupParam::new("database".into(), "postgres".into()),
+            StartupParam::new("application_name".into(), "psql".into()),
+        ]
+    })));
+    assert_matches!(&messages[2], backend!(Authentication::Md5Password { salt: _ }));
+    assert_matches!(&messages[3], frontend!(Password(_)));
+    assert_eq!(messages[4],  backend!(Authentication::Ok));
+    assert_eq!(messages[5],  backend!(ParameterStatus::new("application_name".into(), "psql".into())));
+    assert_eq!(messages[6],  backend!(ParameterStatus::new("client_encoding".into(), "UTF8".into())));
+    assert_eq!(messages[7],  backend!(ParameterStatus::new("DateStyle".into(), "ISO, MDY".into())));
+    assert_eq!(messages[8],  backend!(ParameterStatus::new("integer_datetimes".into(), "on".into())));
+    assert_eq!(messages[9],  backend!(ParameterStatus::new("IntervalStyle".into(), "postgres".into())));
+    assert_eq!(messages[10], backend!(ParameterStatus::new("is_superuser".into(), "on".into())));
+    assert_eq!(messages[11], backend!(ParameterStatus::new("server_encoding".into(), "UTF8".into())));
+    assert_eq!(messages[12], backend!(ParameterStatus::new("server_version".into(), "12.6".into())));
+    assert_eq!(messages[13], backend!(ParameterStatus::new("session_authorization".into(), "postgres".into())));
+    assert_eq!(messages[14], backend!(ParameterStatus::new("standard_conforming_strings".into(), "on".into())));
+    assert_eq!(messages[15], backend!(ParameterStatus::new("TimeZone".into(), "UTC".into())));
+    assert_matches!(&messages[16], backend!(BackendKeyData { process_id: _, secret_key: _ }));
+    assert_eq!(messages[17], backend!(ReadyForQuery { status: ready_for_query::Status::Idle }));
+    assert_eq!(messages[18], frontend!(Terminate{}));
+    assert_eq!(messages.len(), 19);
 }
 
 #[fixture]
@@ -35,9 +82,10 @@ fn test_env(containers_bound_fixture: ContainersBoundFixture) -> TestEnv {
 }
 
 struct TestEnv {
+    messages: Arc<::std::sync::Mutex<Vec<MessageClone>>>,
     postgread_server_handle: Option<task::JoinHandle<io::Result<()>>>,
     port_forwarder: SshPortForwarder,
-    _containers_bound_fixture: ContainersBoundFixture,
+    containers_bound_fixture: ContainersBoundFixture,
 }
 
 impl TestEnv {
@@ -48,7 +96,14 @@ impl TestEnv {
             .expect("could not start postgread server");
         let server_port = server.get_listen_port()
             .expect("could not get port listened by postgread server");
-        let server_handle = task::spawn(server::loop_accepting(server, Arc::new(|_: Message| {})));
+        let messages = Arc::new(::std::sync::Mutex::new(vec![]));
+        let messages2 = messages.clone();
+        let server_handle = task::spawn(server::loop_accepting(
+            server,
+            Arc::new(move |msg_ref: Message| {
+                messages2.lock().unwrap().push(MessageClone::make(msg_ref));
+            })
+        ));
         let port_fwd_config = ssh_port_forwarder::Config {
             server_target_port: server_port,
             client_ssh_port: containers_ports.test_client,
@@ -58,10 +113,15 @@ impl TestEnv {
         let port_forwarder = SshPortForwarder::start(&port_fwd_config)
             .expect("could not start port forwarder (test client container -> postgread)");
         Self {
+            messages,
             postgread_server_handle: Some(server_handle),
             port_forwarder,
-            _containers_bound_fixture: containers_bound_fixture,
+            containers_bound_fixture,
         }
+    }
+
+    fn postgres_passwd(&self) -> &str {
+        &self.containers_bound_fixture.test_context.pg_server_postgres_passwd
     }
 
     async fn exec_on_client(&self, cmd: Vec<&str>) -> Result<ExecOutcome, String> {

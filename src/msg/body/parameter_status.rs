@@ -10,6 +10,10 @@ pub struct ParameterStatus {
 
 impl ParameterStatus {
     pub const TYPE_BYTE: u8 = b'S';
+
+    pub fn new(name: Vec<u8>, value: Vec<u8>) -> Self {
+        Self { name, value }
+    }
 }
 
 impl MsgDecode for ParameterStatus {
