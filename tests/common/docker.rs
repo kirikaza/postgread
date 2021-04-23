@@ -5,7 +5,7 @@ use ::bollard::errors::Error as DockerError;
 use ::bollard::models::*;
 use ::chrono::{DateTime, Utc};
 use ::futures::{Stream, StreamExt, stream::TryStreamExt};
-use ::std::collections::HashMap;
+use ::std::collections::{HashMap, HashSet};
 use ::std::future::Future;
 use ::std::time::Duration;
 
@@ -198,13 +198,15 @@ fn pick_host_bound_port(container_info: &ContainerInspectResponse, exposed_port:
         .and_then(|opt| opt.as_ref())  // flatten Option<&Option<T>> to Option<&T>
         .ok_or(format!("inspect response misses .state.network_settings.ports[{}]", exposed_port))?
         .as_slice();
-    match bindings {
+    let host_ports = bindings.iter()
+        .filter_map(|b| b.host_port.as_ref())
+        .collect::<HashSet<_>>().into_iter()
+        .collect::<Vec<_>>();
+    match host_ports.as_slice() {
         [] => {
-            Err(format!(".state.network_settings.ports[{}] is missing or has no bindings", exposed_port))
+            Err(format!(".state.network_settings.ports[{}] is either missing or has no bindings or has no host_port inside", exposed_port))
         },
-        [binding] => {
-            let host_port = binding.host_port.as_ref()
-                .ok_or(format!(".state.network_settings.ports[{}] misses host_port: {:?}", exposed_port, binding))?;
+        [host_port] => {
             let host_port = host_port.parse::<u16>()
                 .map_err(|e| format!(".state.network_settings.ports[{}].host_port is not a number: {}", exposed_port, e))?;
             Ok(host_port)
